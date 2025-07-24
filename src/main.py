@@ -24,15 +24,19 @@ def main(page: ft.Page):
     # Launch the Selenium driver and login      
     driver = fn.initialize_driver( )
 
+    # Show the main content of the app
+    create_expansion_tile = fn.create_expansion_tile(ft)
+    page.add(create_expansion_tile)
+
     # Add buttons to the page for various actions
     page.add(
         ft.Column(
             [
-                ft.ElevatedButton(
+                ft.CupertinoFilledButton(
                     "Create Bookmark",
                     on_click=lambda e: fn.assign_bookmarks(driver)
                 ),
-                ft.ElevatedButton(
+                ft.CupertinoFilledButton(
                     "Set Timed Publication",
                     on_click=lambda e: fn.timed_pub(driver)
                 )

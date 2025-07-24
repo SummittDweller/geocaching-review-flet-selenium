@@ -9,18 +9,18 @@ import os
 # Function to switch to a new tab that is not in the review_tabs list
 # -----------------------------------------------------------------------------
 def switch_to_new_tab(review_tabs, driver):
-  all_tabs = driver.window_handles
-  first_tab = all_tabs[0]
-  all_tabs.pop(0)  # Remove the first handle from the list
+    all_tabs = driver.window_handles
+    first_tab = all_tabs[0]
+    all_tabs.pop(0)  # Remove the first handle from the list
   
-  # Lop on all_tabs looking for any that does NOT exist in review_tabs and select it
-  for handle in all_tabs:
-    if handle not in review_tabs:
-      print(f"Switching to tab with handle: {handle}")
-      # Switch to the new tab       
-      driver.switch_to.window(handle)
-      print(f"Switched to tab with URL: {driver.current_url}")
-      return handle 
+    # Loop on all_tabs looking for any that does NOT exist in review_tabs and select it
+    for handle in all_tabs:
+        if handle not in review_tabs:
+            print(f"Switching to tab with handle: {handle}")
+            # Switch to the new tab       
+            driver.switch_to.window(handle)
+            print(f"Switched to tab with URL: {driver.current_url}")
+            return handle 
 
 
 # Function to assign the current page to a bookmark list
@@ -33,7 +33,7 @@ def assign_to_bookmark_list(driver, handle, review_tabs):
     # Click the link with ID 'ctl00_ContentBody_lnkBookmark' to bookmark the page
     bookmark_link = driver.find_element(By.ID, "ctl00_ContentBody_lnkBookmark")
     bookmark_link.click( )
-  
+
     # The above action will create a new bookmark list tab... switch to it
     bookmarks = switch_to_new_tab(review_tabs, driver)
     WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "ctl00_ContentBody_Bookmark_ddBookmarkList")))
@@ -221,3 +221,24 @@ def timed_pub(driver):
     driver.execute_script('alert("All done!")')
     # driver.quit( )
 
+# Create an expansion tile for the Flet app
+# -----------------------------------------------------------------------------
+def create_expansion_tile(ft):
+    name = "Main ExpansionTile"
+
+    appText = "The app should have opened your Review Queue page in a new browser window. \n" \
+                "In THAT window be sure to load only the tabs that you wish to perform bulk functions on.  If your function requires data, like Timed Pub or Bookmarking, be sure to process one tab using that information BEFORE you click the action button! \n" \
+
+    return ft.Column(
+        controls=[
+            ft.ExpansionTile(
+                title=ft.Text("Review Queue"),
+                subtitle=ft.Text("Click to expand or contract instructions"),
+                affinity=ft.TileAffinity.PLATFORM,
+                maintain_state=True,
+                collapsed_text_color=ft.Colors.RED,
+                text_color=ft.Colors.RED,
+                controls=[ft.ListTile(title=ft.Text(appText))],
+            )
+        ],
+    )    
