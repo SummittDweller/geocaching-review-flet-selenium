@@ -1,5 +1,28 @@
 # geocaching-review-flet-selenium
 
+## Project Setup
+
+I used the `venv` guidance at [https://flet.dev/docs/getting-started/create-flet-app](https://flet.dev/docs/getting-started/create-flet-app) to create this project.  My specific, complete command sequence was...  
+
+```zsh
+cd ~/GitHub
+mkdir geocaching-review-flet-selenium
+cd geocaching-review-flet-selenium
+python3 -m venv .venv
+source .venv/bin/activate
+pip3 install 'flet[all]'
+pip3 install selenium os dotenv
+pip3 freeze > python-requirements.txt
+flet create
+# Created new empty project directory at https://github.com/SummittDweller/geocaching-review-flet-selenium, then...  
+git init
+git add .
+git commit -m "first commit"
+git branch -M main
+git remote add origin https://github.com/SummittDweller/geocaching-review-flet-selenium.git
+git push -u origin main
+```
+
 ## Flet Controls 
 
 See [https://flet-controls-gallery.fly.dev](https://flet-controls-gallery.fly.dev) for a complete demo of all available controls.  
