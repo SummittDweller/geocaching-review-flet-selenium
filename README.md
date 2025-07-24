@@ -23,6 +23,8 @@ git remote add origin https://github.com/SummittDweller/geocaching-review-flet-s
 git push -u origin main
 ```
 
+I have since added a `.env` file to the project and am keeping it out of GitHub with an addition to the `.gitignore` file.  
+
 ## Flet Controls 
 
 See [https://flet-controls-gallery.fly.dev](https://flet-controls-gallery.fly.dev) for a complete demo of all available controls.  
