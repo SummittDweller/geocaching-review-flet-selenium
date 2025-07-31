@@ -227,7 +227,7 @@ def create_expansion_tile(ft):
     name = "Main ExpansionTile"
 
     appText = "The app should have opened your Review Queue page in a new browser window. \n" \
-                "In THAT window be sure to load only the tabs that you wish to perform bulk functions on.  If your function requires data, like Timed Pub or Bookmarking, be sure to process one tab using that information BEFORE you click the action button! \n" \
+                "In THAT window be sure to load only the tabs that you wish to perform bulk functions on.  If your function requires data, like Timed Pub or Bookmarking, be sure to process one tab using that information, close ALL listing tabs, and reload them all BEFORE you click the action button! \n" \
 
     return ft.Column(
         controls=[
