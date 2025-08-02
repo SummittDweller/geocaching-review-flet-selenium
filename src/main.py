@@ -1,5 +1,6 @@
 import flet as ft
 import functions as fn
+from app_refs import bookmark_checkbox_ref, timed_pub_checkbox_ref
 
 # Main function to run the Flet app
 # --------------------------------------------------------------------------------
@@ -10,10 +11,6 @@ def main(page: ft.Page):
     page.vertical_alignment = ft.MainAxisAlignment.CENTER
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER    
     page.theme_mode = ft.ThemeMode.DARK
-
-    # Create ft.Ref placeholders
-    bookmark_checkbox_ref = ft.Ref[ft.Checkbox]()
-    timed_pub_checkbox_ref = ft.Ref[ft.Checkbox]()
 
     # Show explanatory text
     page.add(

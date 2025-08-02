@@ -1,4 +1,5 @@
 import flet as ft
+from app_refs import bookmark_checkbox_ref, timed_pub_checkbox_ref
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -193,7 +194,7 @@ def go(driver):
     # driver.quit( )
 
 # Functions to check the state of each checkbox
-# 
+# -----------------------------------------------------------------------------
 def bookmark_checkbox_state(e):
     if bookmark_checkbox_ref.current.value:
         print("Bookmark checkbox is checked!")
@@ -209,38 +210,6 @@ def timed_pub_checkbox_state(e):
     else:
         print("Timed pub checkbox is unchecked.")
         return False
-
-
-
-# Callback function to set timed pub for all open review tabs
-# -----------------------------------------------------------------------------
-def timed_pub(driver):
-    review_tabs = start_selenium(driver)
-
-    # Iterate through the remaining handles skipping the first one
-    for handle in review_tabs:
-        print(f"Switching to tab with handle: {handle}")
-        # Switch to the new tab       
-        driver.switch_to.window(handle)
-        print(f"Switched to tab with URL: {driver.current_url}")
-
-        # Fetch all links in the current tab
-        links = driver.find_elements("tag name", "a")
-        print(f"Found {len(links)} links in the current tab.")  
-        # for link in links:
-        #     print(f"Link text: {link.text}, URL: {link.get_attribute('href')}")
-
-        # Perform actions on the links or other elements here
-        # assign_to_bookmark_list(driver, handle, review_tabs)
-        set_timed_pub(driver, handle, review_tabs)
-
-    # Switch back to the original first tab
-    # driver.switch_to.window(first_tab)
-    # print(f"Switched back to original tab with URL: {driver.current_url}")
-
-    # Close the window
-    driver.execute_script('alert("All done!")')
-    # driver.quit( )
 
 # Create an expansion tile for the Flet app
 # -----------------------------------------------------------------------------
