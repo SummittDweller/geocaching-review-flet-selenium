@@ -11,6 +11,10 @@ def main(page: ft.Page):
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER    
     page.theme_mode = ft.ThemeMode.DARK
 
+    # Create ft.Ref placeholders
+    bookmark_checkbox_ref = ft.Ref[ft.Checkbox]()
+    timed_pub_checkbox_ref = ft.Ref[ft.Checkbox]()
+
     # Show explanatory text
     page.add(
         ft.Text(
@@ -28,23 +32,41 @@ def main(page: ft.Page):
     create_expansion_tile = fn.create_expansion_tile(ft)
     page.add(create_expansion_tile)
 
-    # Add buttons to the page for various actions
+    # Add checkboxes to the page for various actions
+    bookmark_checkbox = ft.Checkbox(label="Add to Bookmark List", value=False, ref=bookmark_checkbox_ref)
+    page.add(bookmark_checkbox)
+    timed_pub_checkbox = ft.Checkbox(label="Add to Timed Publishing", value=False, ref=timed_pub_checkbox_ref)
+    page.add(timed_pub_checkbox)
+
+    # Add GO button to the page
     page.add(
-        ft.Column(
-            [
-                ft.CupertinoFilledButton(
-                    "Create Bookmark",
-                    on_click=lambda e: fn.assign_bookmarks(driver)
-                ),
-                ft.CupertinoFilledButton(
-                    "Set Timed Publication",
-                    on_click=lambda e: fn.timed_pub(driver)
-                )
-            ],
-            alignment=ft.MainAxisAlignment.CENTER,
-            spacing=20,
-        )
-    )   
+        ft.CupertinoFilledButton(
+            "GO!",
+            on_click=lambda e: fn.go(driver)
+        ),
+    )
+
+ft.app(target=main)
+
+
+
+    # # Add buttons to the page for various actions
+    # page.add(
+    #     ft.Column(
+    #         [
+    #             ft.CupertinoFilledButton(
+    #                 "Create Bookmark",
+    #                 on_click=lambda e: fn.assign_bookmarks(driver)
+    #             ),
+    #             ft.CupertinoFilledButton(
+    #                 "Set Timed Publication",
+    #                 on_click=lambda e: fn.timed_pub(driver)
+    #             )
+    #         ],
+    #         alignment=ft.MainAxisAlignment.CENTER,
+    #         spacing=20,
+    #     )
+    # )   
 
 
     # counter = ft.Text("0", size=50, data=0)

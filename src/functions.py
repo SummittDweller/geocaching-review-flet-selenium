@@ -160,9 +160,9 @@ def start_selenium(driver):
     return review_tabs
 
 
-# Callback function to assign open review tabs to a bookmark list
+# The GO! callback function
 # -----------------------------------------------------------------------------
-def assign_bookmarks(driver):
+def go(driver):
     review_tabs = start_selenium(driver)
 
     # Iterate through the remaining handles skipping the first one
@@ -179,8 +179,10 @@ def assign_bookmarks(driver):
         #     print(f"Link text: {link.text}, URL: {link.get_attribute('href')}")
 
         # Perform actions on the links or other elements here
-        assign_to_bookmark_list(driver, handle, review_tabs)
-        # set_timed_pub(driver, handle, review_tabs)
+        if bookmark_checkbox_ref.current.value: 
+            assign_to_bookmark_list(driver, handle, review_tabs)
+        if timed_pub_checkbox_ref.current.value: 
+            set_timed_pub(driver, handle, review_tabs)
 
     # Switch back to the original first tab
     # driver.switch_to.window(first_tab)
@@ -189,6 +191,25 @@ def assign_bookmarks(driver):
     # Close the window
     driver.execute_script('alert("All done!")')
     # driver.quit( )
+
+# Functions to check the state of each checkbox
+# 
+def bookmark_checkbox_state(e):
+    if bookmark_checkbox_ref.current.value:
+        print("Bookmark checkbox is checked!")
+        return True
+    else:
+        print("Bookmark checkbox is unchecked.")
+        return False
+
+def timed_pub_checkbox_state(e):
+    if timed_pub_checkbox_ref.current.value:
+        print("Timed pub checkbox is checked!")
+        return True
+    else:
+        print("Timed pub checkbox is unchecked.")
+        return False
+
 
 
 # Callback function to set timed pub for all open review tabs
