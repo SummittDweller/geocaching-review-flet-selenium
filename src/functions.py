@@ -23,6 +23,35 @@ def switch_to_new_tab(review_tabs, driver):
             print(f"Switched to tab with URL: {driver.current_url}")
             return handle 
 
+# Function to DISABLE the current page with a log message pasted from the clipboard
+# -----------------------------------------------------------------------------
+def disable_with_same_message(driver, handle, review_tabs):
+
+    driver.switch_to.window(handle)
+    print(f"Switched to tab with URL: {driver.current_url}")
+
+    # Click the link with ID 'ctl00_ContentBody_lnkDisable' to open the log
+    disable_link = driver.find_element(By.ID, "ctl00_ContentBody_lnkDisable")
+    disable_link.click( )
+
+    # The above action will open a new "disable" log tab... switch to it
+    disable_log = switch_to_new_tab(review_tabs, driver)
+    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "gc-md-editor_md")))
+
+    # Move cursor to the text area and paste the clipboard contents
+    text_area = driver.find_element(By.ID, "gc-md-editor_md")
+    text_area.click( )
+    driver.execute_script("document.execCommand('paste');")  # Paste the clipboard contents 
+    driver.implicitly_wait(1)
+
+    # Click the Post button with class 'gc-button-primary submit-button gc-button' to confirm the disable action
+    post_button = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.CLASS_NAME, "gc-button-primary")))
+    post_button.click( )
+    driver.implicitly_wait(1)   
+
+    # Close the disable log tab that we just used
+    driver.close( )
+
 
 # Function to assign the current page to a bookmark list
 # -----------------------------------------------------------------------------
@@ -184,6 +213,8 @@ def go(driver):
             assign_to_bookmark_list(driver, handle, review_tabs)
         if timed_pub_checkbox_ref.current.value: 
             set_timed_pub(driver, handle, review_tabs)
+        if disable_with_same_message_checkbox_ref.current.value:
+            disable_with_same_message(driver, handle, review_tabs)
 
     # Switch back to the original first tab
     # driver.switch_to.window(first_tab)
@@ -210,6 +241,15 @@ def timed_pub_checkbox_state(e):
     else:
         print("Timed pub checkbox is unchecked.")
         return False
+
+def disable_with_same_message_checkbox_state(e):
+    if disable_with_same_message_checkbox_ref.current.value:
+        print("Disable with same message checkbox is checked!")
+        return True
+    else:
+        print("Disable with same message checkbox is unchecked.")
+        return False
+
 
 # Create an expansion tile for the Flet app
 # -----------------------------------------------------------------------------

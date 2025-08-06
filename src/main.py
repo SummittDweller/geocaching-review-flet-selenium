@@ -1,6 +1,6 @@
 import flet as ft
 import functions as fn
-from app_refs import bookmark_checkbox_ref, timed_pub_checkbox_ref
+from app_refs import bookmark_checkbox_ref, timed_pub_checkbox_ref, disable_with_same_message_checkbox_ref
 
 # Main function to run the Flet app
 # --------------------------------------------------------------------------------
@@ -34,6 +34,8 @@ def main(page: ft.Page):
     page.add(bookmark_checkbox)
     timed_pub_checkbox = ft.Checkbox(label="Add to Timed Publishing", value=False, ref=timed_pub_checkbox_ref)
     page.add(timed_pub_checkbox)
+    disable_with_same_message_checkbox = ft.Checkbox(label="Disable with Same Message", value=False, ref=disable_with_same_message_checkbox_ref)
+    page.add(disable_with_same_message_checkbox)
 
     # Add GO button to the page
     page.add(

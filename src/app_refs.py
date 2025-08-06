@@ -5,3 +5,4 @@ import flet as ft
 # -----------------------------------------------------------------------------
 bookmark_checkbox_ref = ft.Ref[ft.Checkbox]( )
 timed_pub_checkbox_ref = ft.Ref[ft.Checkbox]( )
+disable_with_same_message_checkbox_ref = ft.Ref[ft.Checkbox]( )
