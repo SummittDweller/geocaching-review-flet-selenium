@@ -1,5 +1,5 @@
 import flet as ft
-from app_refs import bookmark_checkbox_ref, timed_pub_checkbox_ref
+from app_refs import bookmark_checkbox_ref, timed_pub_checkbox_ref, disable_with_same_message_checkbox_ref
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
