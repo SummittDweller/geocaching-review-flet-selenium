@@ -21,6 +21,19 @@ from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from dotenv import load_dotenv
 import os
 
+# Helper: Convert 12-hour AM/PM time to 24-hour military format
+# -----------------------------------------------------------------------------
+def _convert_to_military_time(time_str_12hr):
+    """Convert '8:00 AM' or '8:00 PM' to '08:00' or '20:00'"""
+    from datetime import datetime
+    try:
+        time_obj = datetime.strptime(time_str_12hr.strip(), "%I:%M %p")
+        return time_obj.strftime("%H:%M")
+    except ValueError:
+        # If format doesn't match, return as-is
+        return time_str_12hr
+
+
 # Function to switch to a new tab that is not in the review_tabs list
 # -----------------------------------------------------------------------------
 def switch_to_new_tab(review_tabs, driver):
@@ -117,50 +130,109 @@ def set_timed_pub(driver, handle, review_tabs):
     driver.switch_to.window(handle)
     print(f"Switched to tab with URL: {driver.current_url}")
 
-    # Wait for the button titled 'Time publish' and click it
-    timed_pub_button = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.CLASS_NAME, "time-publish-btn")))
-    timed_pub_button.click( )
-    driver.implicitly_wait(1)
-
-    # The above action will open a timed pub pop-up.  Click the ctl00_ContentBody_timePublishButton there.
-    # id="timePublishDateInput"
-    # id="timePublishTimeSelect"
-
     pub_date = (timed_pub_date_ref.current.value or "").strip( )
     pub_time = (timed_pub_time_ref.current.value or "").strip( )
 
     if not pub_date or not pub_time:
-        print("Timed publish date/time not set. Skipping timed publish.")
+        message = "Timed publish date/time not set. Skipping timed publish."
+        print(message)
+        status_text_ref.current.value = message
+        status_text_ref.current.color = "orange"
+        status_text_ref.current.update()
         driver.close( )
         return
 
+    # Wait for the button titled 'Time publish' and click it
+    status_text_ref.current.value = "Looking for Time Publish button..."
+    status_text_ref.current.update()
+    
+    timed_pub_button = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.CLASS_NAME, "time-publish-btn")))
+    driver.execute_script("arguments[0].scrollIntoView(true);", timed_pub_button)
+    import time
+    time.sleep(0.5)
+    timed_pub_button.click( )
+    print("Time Publish button clicked")
+    status_text_ref.current.value = "Time Publish popup opened..."
+    status_text_ref.current.update()
+    driver.implicitly_wait(1)
+
     # Set the date for timed publication
-    time_publish_date_input = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.ID, "timePublishDateInput"))
+    status_text_ref.current.value = f"Setting publish date to {pub_date}..."
+    status_text_ref.current.update()
+    
+    # Flatpickr uses a wrapper, find the visible input
+    date_input = WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.NAME, "ctl00$ContentBody$timePublishDateInput"))
     )
-    time_publish_date_input.clear( )
-    time_publish_date_input.send_keys(pub_date)
+    
+    # Use JavaScript to set the value since it's a date picker
+    driver.execute_script("""
+        const input = arguments[0];
+        input.value = arguments[1];
+        const event = new Event('input', { bubbles: true });
+        input.dispatchEvent(event);
+        const changeEvent = new Event('change', { bubbles: true });
+        input.dispatchEvent(changeEvent);
+    """, date_input, pub_date)
+    print(f"Date set to {pub_date}")
+    time.sleep(0.5)
     driver.implicitly_wait(1)
 
     # Set the time for timed publication
+    status_text_ref.current.value = f"Setting publish time to {pub_time}..."
+    status_text_ref.current.update()
+    
+    # Convert 12-hour AM/PM format to 24-hour military format
+    pub_time_military = _convert_to_military_time(pub_time)
+    print(f"Converted time from '{pub_time}' to military format '{pub_time_military}'")
+    
     time_publish_time_select = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.ID, "timePublishTimeSelect"))
+        EC.element_to_be_clickable((By.ID, "timePublishTimeSelect"))
     )
+    driver.execute_script("arguments[0].scrollIntoView(true);", time_publish_time_select)
+    time.sleep(0.3)
     time_publish_time_select.click( )
-    time_publish_time_option = driver.find_element(
-        By.XPATH, f"//option[normalize-space()='{pub_time}']"
-    )
-    time_publish_time_option.click( )
+    print("Time dropdown clicked")
+    time.sleep(0.3)
+    
+    # Get all available options to debug
+    all_options = driver.find_elements(By.XPATH, "//select[@id='timePublishTimeSelect']/option")
+    available_times = [opt.text for opt in all_options]
+    print(f"Available time options: {available_times}")
+    print(f"Looking for: '{pub_time_military}'")
+    
+    # Try to find matching option
+    time_publish_time_option = None
+    for opt in all_options:
+        if opt.text.strip() == pub_time_military.strip():
+            time_publish_time_option = opt
+            break
+    
+    if time_publish_time_option:
+        time_publish_time_option.click( )
+        print(f"Time set to {time_publish_time_option.text}")
+    else:
+        raise ValueError(f"Time option '{pub_time_military}' not found. Available: {available_times}")
+    
     driver.implicitly_wait(1)
     
-    # Wait for the button with ID ctl00_ContentBody_timePublishButton and click it to confirm the timed publication
+    # Click confirm button
+    status_text_ref.current.value = "Confirming timed publish..."
+    status_text_ref.current.update()
+    
     confirm_timed_pub = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.ID, "ctl00_ContentBody_timePublishButton")))
+    driver.execute_script("arguments[0].scrollIntoView(true);", confirm_timed_pub)
+    time.sleep(0.3)
     confirm_timed_pub.click( )
+    print("Timed publish confirmed")
     driver.implicitly_wait(1)
 
     # Close the tab we just processed and switch back to the review tab
     driver.close( )
     driver.switch_to.window(handle)
+    print("Timed publish operation completed")
+    status_text_ref.current.value = "Timed publish completed for this cache."
+    status_text_ref.current.update()
 
 # Function to initialize the Selenium WebDriver and perform login
 # -----------------------------------------------------------------------------
@@ -277,30 +349,32 @@ def initialize_driver(page):
 # -----------------------------------------------------------------------------
 def _dismiss_cookie_banner(driver):
     try:
-        popup_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.ID, "CybotCookiebotDialogBodyButtonDecline"))
-        )
-        popup_button.click( )
-
-        # Wait for the banner/overlay to go away - check for the container to become invisible
-        WebDriverWait(driver, 10).until(
-            EC.invisibility_of_element_located((By.ID, "CybotCookiebotDialogBodyButtonDecline"))
-        )
-        
-        # Also wait for the entire dialog to be gone
-        try:
-            WebDriverWait(driver, 10).until(
-                EC.invisibility_of_element_located((By.ID, "CybotCookiebotDialog"))
-            )
-        except TimeoutException:
-            pass
-        
-        # Extra wait to ensure the overlay is truly gone
         import time
-        time.sleep(1)
+        # Try to find and click the decline button multiple times if needed
+        for attempt in range(3):
+            try:
+                popup_button = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable((By.ID, "CybotCookiebotDialogBodyButtonDecline"))
+                )
+                popup_button.click()
+                print(f"Cookie banner decline button clicked (attempt {attempt + 1})")
+                break
+            except TimeoutException:
+                if attempt == 2:
+                    raise
+                time.sleep(1)
+        
+        # Wait for the banner to become invisible
+        WebDriverWait(driver, 10).until(
+            EC.invisibility_of_element_located((By.ID, "CybotCookiebotDialog"))
+        )
+        
+        # Extra wait to ensure overlay is gone
+        time.sleep(2)
         
     except TimeoutException:
         # Banner not present or already dismissed
+        print("Cookie banner not found or already dismissed")
         pass
 
 
@@ -402,7 +476,9 @@ def go(driver, page):
             go_button_ref.current.on_click = on_close_click
             go_button_ref.current.update()
             
-            return
+            # Show error completion message
+            completion_message_ref.current.value = "Error encountered. Click CLOSE to close Firefox. Use the red circle (upper left) to close this app."
+            completion_message_ref.current.update()
 
     # Switch back to the original first tab
     # driver.switch_to.window(first_tab)
@@ -427,7 +503,7 @@ def go(driver, page):
     go_button_ref.current.update()
 
     # Show completion message
-    completion_message_ref.current.value = "Processing complete. Click CLOSE to exit. (The app must be restarted if additional operations are needed.)"
+    completion_message_ref.current.value = "Processing complete. Click CLOSE to close Firefox. Use the red circle (upper left) to close this app."
     completion_message_ref.current.update()
     # driver.quit( )
 
@@ -463,8 +539,7 @@ def disable_with_same_message_checkbox_state(e):
 def create_expansion_tile(ft):
     name = "Main ExpansionTile"
 
-    appText = "The app should have opened your Review Queue page in a new browser window. \n" \
-                "In THAT window be sure to load only the tabs that you wish to perform bulk functions on.  If your function requires data, like Timed Pub or Bookmarking, be sure to process one tab using that information, close ALL listing tabs, and reload them all BEFORE you click the action button! \n" \
+    appText = "The app should have opened your Review Queue page in a new browser window. In THAT window be sure to load only the tabs that you wish to perform bulk functions on."
 
     return ft.Column(
         controls=[
