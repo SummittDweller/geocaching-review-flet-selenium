@@ -243,8 +243,14 @@ def initialize_driver(page):
     progress_bar_ref.current.value = 0.85
     progress_bar_ref.current.update()
 
-    # Click the login button
-    login_button = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.ID, "SignIn")))
+    # Click the login button - wait for it to be clickable and not obscured
+    login_button = WebDriverWait(driver, 10).until(
+        EC.element_to_be_clickable((By.ID, "SignIn"))
+    )
+    # Double-check that the button is not obscured by scrolling into view
+    driver.execute_script("arguments[0].scrollIntoView(true);", login_button)
+    import time
+    time.sleep(0.5)
     login_button.click( )
 
     # After interacting with the pop-up, switch back to the main window
@@ -276,10 +282,23 @@ def _dismiss_cookie_banner(driver):
         )
         popup_button.click( )
 
-        # Wait for the banner/overlay to go away
+        # Wait for the banner/overlay to go away - check for the container to become invisible
         WebDriverWait(driver, 10).until(
             EC.invisibility_of_element_located((By.ID, "CybotCookiebotDialogBodyButtonDecline"))
         )
+        
+        # Also wait for the entire dialog to be gone
+        try:
+            WebDriverWait(driver, 10).until(
+                EC.invisibility_of_element_located((By.ID, "CybotCookiebotDialog"))
+            )
+        except TimeoutException:
+            pass
+        
+        # Extra wait to ensure the overlay is truly gone
+        import time
+        time.sleep(1)
+        
     except TimeoutException:
         # Banner not present or already dismissed
         pass
