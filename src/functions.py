@@ -16,7 +16,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, NoSuchWindowException
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from dotenv import load_dotenv
 import os
@@ -229,7 +229,12 @@ def set_timed_pub(driver, handle, review_tabs):
 
     # Close the tab we just processed and switch back to the review tab
     driver.close( )
-    driver.switch_to.window(handle)
+    try:
+        driver.switch_to.window(handle)
+    except NoSuchWindowException:
+        # The browsing context may be discarded after closing, but the operation succeeded
+        print("Warning: Browsing context discarded (harmless - operation completed successfully)")
+    
     print("Timed publish operation completed")
     status_text_ref.current.value = "Timed publish completed for this cache."
     status_text_ref.current.update()
@@ -469,8 +474,7 @@ def go(driver, page):
                     driver.quit()
                 except Exception:
                     pass
-                import sys
-                sys.exit(0)
+                page.window_close()
 
             go_button_ref.current.text = "CLOSE"
             go_button_ref.current.on_click = on_close_click
