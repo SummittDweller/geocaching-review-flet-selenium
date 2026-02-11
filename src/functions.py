@@ -91,14 +91,23 @@ def _calculate_next_publish_time(current_date_str, current_time_military, increm
         "1 Day": timedelta(days=1),
     }
     
+    def _normalize_date_str(date_str):
+        try:
+            # Handle ISO datetime like 2026-02-11T00:00:00
+            return datetime.fromisoformat(date_str).date().isoformat()
+        except ValueError:
+            return date_str
+
+    normalized_date = _normalize_date_str(current_date_str)
+
     if increment_str == "None" or list_index == 0:
         # First item uses the specified time, no increment
-        target_dt = datetime.strptime(f"{current_date_str} {current_time_military}", "%Y-%m-%d %H:%M")
+        target_dt = datetime.strptime(f"{normalized_date} {current_time_military}", "%Y-%m-%d %H:%M")
     else:
         # For subsequent items, add increment to the last actual published time
         if last_actual_datetime is None:
             # Fallback if no last time provided
-            target_dt = datetime.strptime(f"{current_date_str} {current_time_military}", "%Y-%m-%d %H:%M")
+            target_dt = datetime.strptime(f"{normalized_date} {current_time_military}", "%Y-%m-%d %H:%M")
         else:
             increment = increment_map.get(increment_str, timedelta(0))
             target_dt = last_actual_datetime + increment

@@ -50,6 +50,17 @@ PASSWORD=your_geocaching_password
 
 ## Recent Updates
 
+### 2026-02-11
+- Added timed publish increments with blackout window enforcement (10 PM–6 AM) and chained increments.
+- Added disable message input (persistent) and conditional visibility when enabled.
+- Added splash-screen Firefox profile path input with required selection before start.
+- Added profile selection persistence and support for manual path entry.
+- Added automatic closure of extra tabs opened during startup/processing.
+- Improved disable workflow tab targeting and retries to avoid wrong tabs.
+- Added detailed per-listing logging and error context for operations.
+- Made the UI scrollable and adjusted layout to prevent controls from being hidden.
+- Fixed ISO datetime parsing for timed publish dates.
+
 ### Session Enhancements
 - Added `run.sh` script for easy setup and launch
 - Implemented Firefox profile loading to preserve extensions
