@@ -258,8 +258,25 @@ def disable_with_same_message(driver, handle, review_tabs):
     except Exception as e:
         print(f"ERROR: Could not find or click post button: {e}")
         raise
-    
-    time.sleep(2)
+
+    # Accept confirmation dialog if one appears (dismiss would cancel)
+    try:
+        alert = WebDriverWait(driver, 3).until(EC.alert_is_present())
+        print("Confirmation alert detected, accepting...")
+        alert.accept()
+        time.sleep(0.5)
+    except Exception:
+        pass
+
+    # Wait for submission to complete (textarea becomes stale or disappears)
+    try:
+        WebDriverWait(driver, 10).until(EC.staleness_of(text_area))
+        print("Submission completed (editor stale)")
+    except Exception:
+        # If not stale, continue but warn
+        print("Warning: editor did not go stale after post; submission may not have completed yet")
+
+    time.sleep(1)
 
     # Close the disable log tab that we just used and switch back to the review tab
     try:
