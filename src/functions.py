@@ -753,20 +753,26 @@ def go(driver, page):
     # driver.switch_to.window(first_tab)
     # print(f"Switched back to original tab with URL: {driver.current_url}")
 
-    # Close any leftover tabs that were opened during processing (keep only original review tabs)
+    # Close any leftover tabs that were opened during processing (keep review/admin tabs)
     try:
-        original_tab_count = len(review_tabs) + 1  # review_tabs + main admin tab
         current_tabs = driver.window_handles
-        if len(current_tabs) > original_tab_count:
-            print(f"Closing {len(current_tabs) - original_tab_count} extra tab(s)")
-            for handle in current_tabs:
-                if handle not in review_tabs and handle != current_tabs[0]:  # Keep main tab and review tabs
-                    try:
-                        driver.switch_to.window(handle)
-                        driver.close()
-                    except Exception as e:
-                        print(f"Warning: Could not close extra tab: {e}")
-        # Switch back to main tab
+        for handle in list(current_tabs):
+            try:
+                driver.switch_to.window(handle)
+                url = driver.current_url
+            except Exception:
+                continue
+
+            # Keep admin/review tabs; close others (e.g., log pages, script tabs)
+            if "geocaching.com/admin/review.aspx" in url or "geocaching.com/admin" in url:
+                continue
+            
+            try:
+                driver.close()
+            except Exception as e:
+                print(f"Warning: Could not close extra tab: {e}")
+
+        # Switch back to main tab if possible
         if driver.window_handles:
             driver.switch_to.window(driver.window_handles[0])
     except Exception as e:
