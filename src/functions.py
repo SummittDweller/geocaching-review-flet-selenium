@@ -472,10 +472,16 @@ def set_timed_pub(driver, handle, review_tabs):
 
 # Function to initialize the Selenium WebDriver and perform login
 # -----------------------------------------------------------------------------
-def initialize_driver(page):
+def initialize_driver(page, username=None, password=None):
 
     load_dotenv( )     # Load environment variables from .env file
-    password = os.getenv("PASSWORD")
+    expected_user = (username or os.getenv("GEOCACHING_USERNAME") or "").strip( )
+    effective_password = password if password is not None else (os.getenv("PASSWORD") or "")
+
+    if not expected_user:
+        raise ValueError("Startup halted: Geocaching username is required.")
+    if not effective_password:
+        raise ValueError("Startup halted: Geocaching password is required.")
 
     # Update progress
     progress_bar_ref.current.value = 0.1
@@ -523,23 +529,20 @@ def initialize_driver(page):
 
     driver = webdriver.Firefox(options=options)
 
+    # Close noisy extension tabs (Tampermonkey changes/changelog) opened at startup
+    _close_tampermonkey_changes_tabs(driver)
+
     # Update progress
     progress_bar_ref.current.value = 0.5
     loading_status_ref.current.value = "Loading geocaching.com admin page..."
     progress_bar_ref.current.update()
     loading_status_ref.current.update()
 
-    # Open the geocaching.com site
+    # Open geocaching after initial browser startup tab cleanup
     driver.get("https://www.geocaching.com/admin")
 
     # Store the handle of the main window
     main_window_handle = driver.current_window_handle
-
-    # Wait for the new window to appear (adjust timeout as needed)
-    # WebDriverWait(driver, 10).until(EC.number_of_windows_to_be(2))
-
-    # Get all window handles
-    all_window_handles = driver.window_handles
 
     # Update progress
     progress_bar_ref.current.value = 0.7
@@ -551,8 +554,7 @@ def initialize_driver(page):
     _dismiss_cookie_banner(driver)
 
     # Ensure expected geocaching identity is active
-    expected_user = "Iowa.Landmark"
-    active_user = _ensure_expected_geocaching_user(driver, expected_user, password)
+    active_user = _ensure_expected_geocaching_user(driver, expected_user, effective_password)
     if active_user != expected_user:
         raise RuntimeError(
             f"Startup halted: expected account '{expected_user}' but detected '{active_user or 'unknown'}'."
@@ -563,21 +565,8 @@ def initialize_driver(page):
     progress_bar_ref.current.value = 0.85
     progress_bar_ref.current.update()
 
-    # After interacting with the pop-up, switch back to the main window
-    driver.switch_to.window(main_window_handle)
-
-    # Close any extra tabs that may have opened (e.g., Tampermonkey changelog, etc.)
-    main_handle = main_window_handle
-    for handle in driver.window_handles:
-        if handle != main_handle:
-            try:
-                driver.switch_to.window(handle)
-                driver.close()
-            except Exception as e:
-                print(f"Warning: Could not close extra tab: {e}")
-    
-    # Switch back to main window
-    driver.switch_to.window(main_handle)
+    # Cleanup any extension tabs that may have appeared during login
+    _close_tampermonkey_changes_tabs(driver)
 
     # Update progress
     progress_bar_ref.current.value = 0.95
@@ -629,9 +618,59 @@ def _dismiss_cookie_banner(driver):
         pass
 
 
-def _detect_geocaching_username(driver):
+def _close_tampermonkey_changes_tabs(driver):
+    """Close Tampermonkey changelog/changes tabs if they open at browser startup."""
+    try:
+        handles = list(driver.window_handles)
+    except Exception:
+        return
+
+    if not handles:
+        return
+
+    current_handle = driver.current_window_handle
+
+    def _is_tampermonkey_tab(url, title):
+        url_l = (url or "").lower()
+        title_l = (title or "").lower()
+        return (
+            "tampermonkey" in url_l
+            or "tampermonkey" in title_l
+            or "changes" in title_l and "userscript" in url_l
+            or "changelog" in url_l and "tampermonkey" in url_l
+        )
+
+    for handle in list(handles):
+        try:
+            driver.switch_to.window(handle)
+            url = driver.current_url
+            title = driver.title
+            if _is_tampermonkey_tab(url, title) and len(driver.window_handles) > 1:
+                print(f"Closing Tampermonkey tab: {title} ({url})")
+                driver.close()
+        except Exception as exc:
+            print(f"Warning: Could not inspect/close startup tab: {exc}")
+
+    # Ensure we are focused on a live window
+    remaining = driver.window_handles
+    if not remaining:
+        driver.switch_to.new_window('tab')
+        return
+
+    try:
+        if current_handle in remaining:
+            driver.switch_to.window(current_handle)
+        else:
+            driver.switch_to.window(remaining[0])
+    except Exception:
+        driver.switch_to.window(remaining[0])
+
+
+def _detect_geocaching_username(driver, expected_username=None):
     """Best-effort detection of active geocaching username from page source."""
     source = (driver.page_source or "").lower()
+    if expected_username and expected_username.lower() in source:
+        return expected_username
     if "iowa.landmark" in source:
         return "Iowa.Landmark"
     if "summittdweller" in source:
@@ -660,46 +699,51 @@ def _perform_geocaching_login(driver, username, password):
 
 
 def _ensure_expected_geocaching_user(driver, expected_username, password):
-    """Ensure geocaching is authenticated as the expected user, not another profile account."""
+    """Always reset geocaching auth state and sign in using the requested credentials."""
+    if status_text_ref.current:
+        status_text_ref.current.value = f"Signing in as {expected_username}..."
+        status_text_ref.current.color = "orange"
+        status_text_ref.current.update()
+
+    # Normalize browser state first
+    _close_tampermonkey_changes_tabs(driver)
+
+    # Visit geocaching domain, clear cookies/storage, and force sign-out to avoid sticky profile sessions
+    driver.get("https://www.geocaching.com")
+    _dismiss_cookie_banner(driver)
     try:
-        WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.ID, "UsernameOrEmail"))
-        )
-        _perform_geocaching_login(driver, expected_username, password)
-        return expected_username
-    except TimeoutException:
+        driver.delete_all_cookies()
+    except Exception:
+        pass
+    try:
+        driver.execute_script("window.localStorage.clear(); window.sessionStorage.clear();")
+    except Exception:
         pass
 
-    active_user = _detect_geocaching_username(driver)
-    if active_user == expected_username:
-        if status_text_ref.current:
-            status_text_ref.current.value = f"Logged in as {expected_username}."
-            status_text_ref.current.color = "green"
-            status_text_ref.current.update()
-        return expected_username
+    driver.get("https://www.geocaching.com/account/signout")
+    time.sleep(1)
 
-    if active_user and active_user != expected_username:
-        if status_text_ref.current:
-            status_text_ref.current.value = f"Logged in as {active_user}; switching to {expected_username}..."
-            status_text_ref.current.color = "orange"
-            status_text_ref.current.update()
-
-        # Force sign-out of current profile account, then sign in with expected account
-        driver.get("https://www.geocaching.com/account/signout")
-        time.sleep(1)
-
-    # Attempt explicit sign-in flow for expected user
+    # Explicit sign-in with provided credentials
     driver.get("https://www.geocaching.com/account/signin?returnUrl=%2Fadmin")
     _dismiss_cookie_banner(driver)
     _perform_geocaching_login(driver, expected_username, password)
 
-    # Verify wrong account is no longer active
-    time.sleep(1)
-    post_login_user = _detect_geocaching_username(driver)
-    if post_login_user == "SummittDweller":
-        raise RuntimeError("Authentication check failed: still logged in as SummittDweller.")
+    # Wait for navigation away from sign-in screen
+    try:
+        WebDriverWait(driver, 12).until(lambda d: "account/signin" not in (d.current_url or ""))
+    except TimeoutException:
+        raise RuntimeError("Startup halted: login did not complete; check credentials and MFA prompts.")
 
-    return post_login_user or expected_username
+    # Verify resulting account on admin page
+    driver.get("https://www.geocaching.com/admin")
+    _dismiss_cookie_banner(driver)
+    detected_user = _detect_geocaching_username(driver, expected_username=expected_username)
+    if detected_user != expected_username:
+        raise RuntimeError(
+            f"Startup halted: login completed but account verification failed (detected '{detected_user or 'unknown'}')."
+        )
+
+    return expected_username
 
 
 # Start the Selenium driver and perform initial actions

@@ -11,6 +11,8 @@ from app_refs import (
     disable_with_same_message_checkbox_ref,
     disable_with_same_message_text_ref,
     firefox_profile_path_ref,
+    geocaching_username_ref,
+    geocaching_password_ref,
     status_text_ref,
     loading_status_ref,
     progress_bar_ref,
@@ -41,11 +43,38 @@ def main(page: ft.Page):
 
     # Load persisted values for splash screen
     stored_firefox_profile_path = page.client_storage.get("firefox_profile_path") or ""
+    stored_geocaching_username = page.client_storage.get("geocaching_username") or ""
+    stored_remember_password = bool(page.client_storage.get("remember_geocaching_password"))
+    stored_geocaching_password = page.client_storage.get("geocaching_password") or "" if stored_remember_password else ""
+
+    def _update_start_button_state():
+        profile_ok = bool((firefox_profile_path_ref.current.value or "").strip()) if firefox_profile_path_ref.current else False
+        username_ok = bool((geocaching_username_ref.current.value or "").strip()) if geocaching_username_ref.current else False
+        password_ok = bool((geocaching_password_ref.current.value or "").strip()) if geocaching_password_ref.current else False
+        start_button.disabled = not (profile_ok and username_ok and password_ok)
+        start_button.update()
+
+    def _persist_password_value():
+        remember = bool(page.client_storage.get("remember_geocaching_password"))
+        if remember:
+            page.client_storage.set("geocaching_password", geocaching_password_ref.current.value or "")
+
+    def _on_password_change(e):
+        _persist_password_value()
+        _update_start_button_state()
+
+    def _on_remember_password_change(e):
+        remember = bool(e.control.value)
+        page.client_storage.set("remember_geocaching_password", remember)
+        if remember:
+            page.client_storage.set("geocaching_password", geocaching_password_ref.current.value or "")
+        else:
+            page.client_storage.set("geocaching_password", "")
 
     # Create the start button (will be added after profile selector)
     start_button = ft.CupertinoFilledButton(
         "Start",
-        disabled=not stored_firefox_profile_path,
+        disabled=not (stored_firefox_profile_path and stored_geocaching_username and stored_geocaching_password),
     )
 
     def on_profile_pick(e: ft.FilePickerResultEvent):
@@ -53,8 +82,7 @@ def main(page: ft.Page):
             firefox_profile_path_ref.current.value = e.path
             firefox_profile_path_ref.current.update()
             page.client_storage.set("firefox_profile_path", e.path)
-            start_button.disabled = False
-            start_button.update()
+            _update_start_button_state()
 
     # Firefox profile selector - shown on splash screen
     firefox_profile_path_field = ft.TextField(
@@ -64,12 +92,41 @@ def main(page: ft.Page):
         read_only=False,
         on_change=lambda e: (
             page.client_storage.set("firefox_profile_path", e.control.value),
-            setattr(start_button, "disabled", not e.control.value.strip()),
-            start_button.update()
+            _update_start_button_state()
         ),
         width=480,
     )
     page.add(firefox_profile_path_field)
+
+    geocaching_username_field = ft.TextField(
+        label="Geocaching username",
+        value=stored_geocaching_username,
+        ref=geocaching_username_ref,
+        on_change=lambda e: (
+            page.client_storage.set("geocaching_username", e.control.value),
+            _update_start_button_state()
+        ),
+        width=360,
+    )
+    page.add(geocaching_username_field)
+
+    geocaching_password_field = ft.TextField(
+        label="Geocaching password",
+        value=stored_geocaching_password,
+        ref=geocaching_password_ref,
+        password=True,
+        can_reveal_password=True,
+        on_change=_on_password_change,
+        width=360,
+    )
+    page.add(geocaching_password_field)
+
+    remember_password_checkbox = ft.Checkbox(
+        label="Remember password",
+        value=stored_remember_password,
+        on_change=_on_remember_password_change,
+    )
+    page.add(remember_password_checkbox)
 
     # Start button (enabled only after profile selection)
     def on_start_click(e):
@@ -103,9 +160,14 @@ def main(page: ft.Page):
 
         # Launch the Selenium driver and login
         try:
-            driver = fn.initialize_driver(page)
+            username = (geocaching_username_ref.current.value or "").strip()
+            password = geocaching_password_ref.current.value or ""
+            driver = fn.initialize_driver(page, username=username, password=password)
         except Exception as exc:
-            loading_status_ref.current.value = f"{exc}"
+            error_message = str(exc).strip() or "Startup failed."
+            if "remoteerror@chrome://" in error_message.lower():
+                error_message = "Firefox startup failed while switching accounts. Please retry Start and verify credentials."
+            loading_status_ref.current.value = error_message
             loading_status_ref.current.color = ft.Colors.RED
             progress_bar_ref.current.visible = False
             loading_status_ref.current.update()
