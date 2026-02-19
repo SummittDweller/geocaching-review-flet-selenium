@@ -101,8 +101,16 @@ def main(page: ft.Page):
         stored_pub_increment = page.client_storage.get("timed_pub_increment") or "None"
         stored_disable_message = page.client_storage.get("disable_with_same_message_text") or ""
 
-        # Launch the Selenium driver and login      
-        driver = fn.initialize_driver(page)
+        # Launch the Selenium driver and login
+        try:
+            driver = fn.initialize_driver(page)
+        except Exception as exc:
+            loading_status_ref.current.value = f"{exc}"
+            loading_status_ref.current.color = ft.Colors.RED
+            progress_bar_ref.current.visible = False
+            loading_status_ref.current.update()
+            progress_bar_ref.current.update()
+            return
 
         # Show the main content of the app
         create_expansion_tile = fn.create_expansion_tile(ft)
@@ -275,6 +283,12 @@ def main(page: ft.Page):
             text_align=ft.TextAlign.CENTER,
         )
         page.add(status_text)
+
+        active_user = getattr(driver, "_gc_active_user", "")
+        if active_user:
+            status_text_ref.current.value = f"Logged in as {active_user}."
+            status_text_ref.current.color = ft.Colors.GREEN
+            status_text_ref.current.update()
 
     start_button.on_click = on_start_click
     page.add(start_button)

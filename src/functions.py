@@ -23,6 +23,7 @@ from selenium.common.exceptions import TimeoutException, NoSuchWindowException
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from dotenv import load_dotenv
 import os
+import time
 
 # Global counter and tracker for timed publishing group
 # Tracks which listing in the current timed publishing group is being processed
@@ -549,34 +550,18 @@ def initialize_driver(page):
     # Dismiss the cookie banner if present
     _dismiss_cookie_banner(driver)
 
-    # Now, fill in necessary login information (if login form is present)
-    try:
-        username_field = WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.ID, "UsernameOrEmail"))
+    # Ensure expected geocaching identity is active
+    expected_user = "Iowa.Landmark"
+    active_user = _ensure_expected_geocaching_user(driver, expected_user, password)
+    if active_user != expected_user:
+        raise RuntimeError(
+            f"Startup halted: expected account '{expected_user}' but detected '{active_user or 'unknown'}'."
         )
-        username_field.send_keys("Iowa.Landmark")
-        password_field = driver.find_element(By.ID, "Password")
-        password_field.send_keys(password)
+    driver._gc_active_user = active_user
 
-        # Update progress
-        progress_bar_ref.current.value = 0.85
-        progress_bar_ref.current.update()
-
-        # Click the login button - wait for it to be clickable and not obscured
-        login_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.ID, "SignIn"))
-        )
-        # Double-check that the button is not obscured by scrolling into view
-        driver.execute_script("arguments[0].scrollIntoView(true);", login_button)
-        import time
-        time.sleep(0.5)
-        login_button.click( )
-    except TimeoutException:
-        # Likely already logged in or login form changed
-        if status_text_ref.current:
-            status_text_ref.current.value = "Login form not found; continuing..."
-            status_text_ref.current.color = "orange"
-            status_text_ref.current.update()
+    # Update progress
+    progress_bar_ref.current.value = 0.85
+    progress_bar_ref.current.update()
 
     # After interacting with the pop-up, switch back to the main window
     driver.switch_to.window(main_window_handle)
@@ -642,6 +627,79 @@ def _dismiss_cookie_banner(driver):
         # Banner not present or already dismissed
         print("Cookie banner not found or already dismissed")
         pass
+
+
+def _detect_geocaching_username(driver):
+    """Best-effort detection of active geocaching username from page source."""
+    source = (driver.page_source or "").lower()
+    if "iowa.landmark" in source:
+        return "Iowa.Landmark"
+    if "summittdweller" in source:
+        return "SummittDweller"
+    return None
+
+
+def _perform_geocaching_login(driver, username, password):
+    """Fill the sign-in form and submit credentials."""
+    username_field = WebDriverWait(driver, 8).until(
+        EC.presence_of_element_located((By.ID, "UsernameOrEmail"))
+    )
+    username_field.clear()
+    username_field.send_keys(username)
+
+    password_field = driver.find_element(By.ID, "Password")
+    password_field.clear()
+    password_field.send_keys(password or "")
+
+    login_button = WebDriverWait(driver, 10).until(
+        EC.element_to_be_clickable((By.ID, "SignIn"))
+    )
+    driver.execute_script("arguments[0].scrollIntoView(true);", login_button)
+    time.sleep(0.5)
+    login_button.click( )
+
+
+def _ensure_expected_geocaching_user(driver, expected_username, password):
+    """Ensure geocaching is authenticated as the expected user, not another profile account."""
+    try:
+        WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.ID, "UsernameOrEmail"))
+        )
+        _perform_geocaching_login(driver, expected_username, password)
+        return expected_username
+    except TimeoutException:
+        pass
+
+    active_user = _detect_geocaching_username(driver)
+    if active_user == expected_username:
+        if status_text_ref.current:
+            status_text_ref.current.value = f"Logged in as {expected_username}."
+            status_text_ref.current.color = "green"
+            status_text_ref.current.update()
+        return expected_username
+
+    if active_user and active_user != expected_username:
+        if status_text_ref.current:
+            status_text_ref.current.value = f"Logged in as {active_user}; switching to {expected_username}..."
+            status_text_ref.current.color = "orange"
+            status_text_ref.current.update()
+
+        # Force sign-out of current profile account, then sign in with expected account
+        driver.get("https://www.geocaching.com/account/signout")
+        time.sleep(1)
+
+    # Attempt explicit sign-in flow for expected user
+    driver.get("https://www.geocaching.com/account/signin?returnUrl=%2Fadmin")
+    _dismiss_cookie_banner(driver)
+    _perform_geocaching_login(driver, expected_username, password)
+
+    # Verify wrong account is no longer active
+    time.sleep(1)
+    post_login_user = _detect_geocaching_username(driver)
+    if post_login_user == "SummittDweller":
+        raise RuntimeError("Authentication check failed: still logged in as SummittDweller.")
+
+    return post_login_user or expected_username
 
 
 # Start the Selenium driver and perform initial actions
