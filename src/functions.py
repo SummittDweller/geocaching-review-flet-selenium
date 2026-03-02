@@ -855,14 +855,16 @@ def go(driver, page):
                     driver.quit()
                 except Exception:
                     pass
-                page.window_close()
+                completion_message_ref.current.value = "Firefox closed. To close this app, click the red button in the app window."
+                completion_message_ref.current.color = ft.Colors.ORANGE
+                completion_message_ref.current.update()
 
             go_button_ref.current.text = "CLOSE"
             go_button_ref.current.on_click = on_close_click
             go_button_ref.current.update()
             
             # Show error completion message
-            completion_message_ref.current.value = "Error encountered. Click CLOSE to close Firefox. Use the red circle (upper left) to close this app."
+            completion_message_ref.current.value = "Error encountered. Click CLOSE to close Firefox. To close this app, click the red button in the app window."
             completion_message_ref.current.update()
             
             # Stop processing further listings
@@ -908,15 +910,16 @@ def go(driver, page):
             driver.quit()
         except Exception:
             pass
-        import sys
-        sys.exit(0)
+        completion_message_ref.current.value = "Firefox closed. To close this app, click the red button in the app window."
+        completion_message_ref.current.color = ft.Colors.ORANGE
+        completion_message_ref.current.update()
 
     go_button_ref.current.text = "CLOSE"
     go_button_ref.current.on_click = on_close_click
     go_button_ref.current.update()
 
     # Show completion message
-    completion_message_ref.current.value = "Processing complete. Click CLOSE to close Firefox. Use the red circle (upper left) to close this app."
+    completion_message_ref.current.value = "Processing complete. Click CLOSE to close Firefox. To close this app, click the red button in the app window."
     completion_message_ref.current.update()
     # driver.quit( )
 

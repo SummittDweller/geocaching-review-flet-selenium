@@ -34,7 +34,7 @@ def main(page: ft.Page):
     # Show explanatory text
     page.add(
         ft.Text(
-            "This app is a work in progress to demonstrate how to use Flet with Selenium for geocaching review tasks.",
+            "This app demonstrates how to use Flet with Selenium for geocaching review tasks.",
             size=20,
             text_align=ft.TextAlign.CENTER,
             color=ft.Colors.WHITE,
