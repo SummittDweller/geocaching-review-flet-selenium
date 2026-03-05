@@ -155,7 +155,8 @@ def main(page: ft.Page):
         stored_bookmark_name = page.client_storage.get("bookmark_name") or ""
         stored_pub_date = page.client_storage.get("timed_pub_date") or ""
         stored_pub_time = page.client_storage.get("timed_pub_time") or ""
-        stored_pub_increment = page.client_storage.get("timed_pub_increment") or "None"
+        stored_pub_increment = "None"
+        page.client_storage.set("timed_pub_increment", "None")
         stored_disable_message = page.client_storage.get("disable_with_same_message_text") or ""
 
         # Launch the Selenium driver and login
