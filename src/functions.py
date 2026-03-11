@@ -21,9 +21,15 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchWindowException
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.firefox.service import Service as FirefoxService
 from dotenv import load_dotenv
 import os
 import time
+
+try:
+    from webdriver_manager.firefox import GeckoDriverManager
+except Exception:
+    GeckoDriverManager = None
 
 # Global counter and tracker for timed publishing group
 # Tracks which listing in the current timed publishing group is being processed
@@ -527,7 +533,19 @@ def initialize_driver(page, username=None, password=None):
     progress_bar_ref.current.update()
     loading_status_ref.current.update()
 
-    driver = webdriver.Firefox(options=options)
+    service = None
+    if GeckoDriverManager is not None:
+        try:
+            managed_driver_path = GeckoDriverManager().install()
+            service = FirefoxService(executable_path=managed_driver_path)
+            print(f"Using managed geckodriver: {managed_driver_path}")
+        except Exception as exc:
+            print(f"Warning: failed to resolve managed geckodriver, falling back to PATH. {exc}")
+
+    if service is not None:
+        driver = webdriver.Firefox(options=options, service=service)
+    else:
+        driver = webdriver.Firefox(options=options)
 
     # Close noisy extension tabs (Tampermonkey changes/changelog) opened at startup
     _close_tampermonkey_changes_tabs(driver)
