@@ -12,6 +12,7 @@ A work in progress demonstrating Flet with Selenium for geocaching review tasks.
 - **Persistent Settings**: Bookmark name and timed publish date/time are saved between sessions
 - **Real-time Status Updates**: In-app status messages show operation progress and errors
 - **Error Handling**: Validates inputs and provides clear error messages
+- **Queue Dump to CSV**: Export on-hold listings to a sorted CSV file
 
 ## Installation
 
@@ -39,7 +40,24 @@ chmod +x run.sh
    - **Add to Timed Publishing**: Check the box and select date/time using the pickers
    - **Disable with Same Message**: Check the box (ensure clipboard has your message)
 5. **Execute**: Click **GO!** to process all loaded review tabs
-6. **Complete**: When done, click **CLOSE** to quit Firefox, then use the red circle (upper left) to close the app
+6. **Export Queue**: Click **Dump On-Hold to CSV** to export all on-hold listings with publication dates
+   - A Firefox window opens to the queue page using your configured profile
+   - The app will scrape the data and create a sorted CSV file (`geocaching_queue.csv`)
+   - CSV columns: `ID`, `Set to publish`, `D`, `T`, `Title`, `Owner`
+   - `D`/`T` are extracted from the ID block (e.g., `(2/1.5)`), and `Set to publish` is extracted from the title text
+7. **Complete**: When done, click **CLOSE** to quit Firefox, then use the red circle (upper left) to close the app
+
+### CSV Export Troubleshooting
+
+- After export, check the in-app status summary (example: `Exported 259 unique IDs | missing publish: 0 | missing D/T: 0`).
+- If `geocaching_queue.csv` appears to have far more lines than listings, compare against the in-app **unique ID** count.
+- Confirm the output header is exactly: `ID,Set to publish,D,T,Title,Owner`.
+- Spot-check a few rows:
+   - `ID` should look like `GC...`
+   - `D` and `T` should be numeric values from `(D/T)`
+   - `Set to publish` should be parsed from `Set to publish at ...` text
+- If data looks shifted, rerun **Dump On-Hold to CSV** after the queue page is fully loaded in Firefox.
+- If needed, delete `geocaching_queue.csv` and export again to avoid comparing against stale output.
 
 ## Configuration
 

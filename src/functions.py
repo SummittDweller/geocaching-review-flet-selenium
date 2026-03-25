@@ -130,6 +130,342 @@ def _calculate_next_publish_time(current_date_str, current_time_military, increm
     return (target_dt.strftime("%Y-%m-%d"), target_dt.strftime("%H:%M"), target_dt)
 
 
+# Function to scrape geocaching queue and dump to CSV
+# ============================================================================
+def scrape_queue_to_csv(firefox_profile_path, status_callback=None):
+    """
+    Scrape the geocaching queue page and save to CSV.
+    
+    Args:
+        firefox_profile_path: Path to Firefox profile with authenticated session
+        status_callback: Optional callback function to update UI with status messages
+                        Should accept a string status message and optional color (ft.Colors)
+    
+    Returns:
+        Tuple of (success: bool, message: str, csv_path: str or None)
+    """
+    import csv
+    import re
+    from pathlib import Path
+    from datetime import datetime
+    
+    driver = None
+    
+    def update_status(msg, color=None):
+        """Helper to update UI status if callback provided"""
+        if status_callback:
+            status_callback(msg, color)
+        print(msg)
+    
+    def clean_text(value):
+        if not value:
+            return ""
+        return " ".join(value.split())
+
+    def normalize_header(value):
+        return clean_text(value).strip().lower()
+
+    def extract_publish_from_text(value):
+        if not value:
+            return ""
+        match = re.search(
+            r"Set\s+to\s+publish\s+at\s+(\d{1,2}:\d{2})\s+\w+\s+Time\s+on\s+(\d{1,2}\.[A-Za-z]{3}\.\d{4})",
+            value,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return ""
+        return f"{match.group(2)} {match.group(1)}"
+
+    def parse_datetime_for_sort(datetime_str):
+        if not datetime_str:
+            return datetime.max
+
+        normalized = clean_text(datetime_str)
+
+        formats = [
+            "%m/%d/%Y %I:%M %p",
+            "%m/%d/%Y %H:%M",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %I:%M %p",
+            "%d.%b.%Y %H:%M",
+            "%d.%b.%Y %I:%M %p",
+        ]
+
+        for fmt in formats:
+            try:
+                return datetime.strptime(normalized, fmt)
+            except ValueError:
+                continue
+
+        extracted = extract_publish_from_text(normalized)
+        if extracted:
+            try:
+                return datetime.strptime(extracted, "%d.%b.%Y %H:%M")
+            except ValueError:
+                pass
+
+        print(f"Warning: Could not parse datetime '{datetime_str}'")
+        return datetime.max
+
+    try:
+        update_status("Starting Firefox for queue scraping...")
+        
+        # Setup Firefox with the provided profile
+        options = FirefoxOptions()
+        if firefox_profile_path and Path(firefox_profile_path).exists():
+            options.profile = webdriver.FirefoxProfile(firefox_profile_path)
+            update_status(f"Using profile: {firefox_profile_path}")
+        
+        # Initialize webdriver
+        service = None
+        if GeckoDriverManager is not None:
+            try:
+                managed_driver_path = GeckoDriverManager().install()
+                service = FirefoxService(executable_path=managed_driver_path)
+            except Exception as exc:
+                print(f"Warning: Could not use managed geckodriver: {exc}")
+        
+        if service is not None:
+            driver = webdriver.Firefox(options=options, service=service)
+        else:
+            driver = webdriver.Firefox(options=options)
+        
+        update_status("Navigating to queue...")
+        queue_url = "https://www.geocaching.com/admin/queue.aspx?filter=AllHolds&stateid=16&pagesize=-1"
+        driver.get(queue_url)
+        
+        update_status("Waiting for table to load...")
+        try:
+            WebDriverWait(driver, 30).until(
+                EC.presence_of_all_elements_located((By.TAG_NAME, "table"))
+            )
+        except TimeoutException:
+            update_status("Page load timeout - checking content anyway...", ft.Colors.ORANGE)
+        
+        update_status(f"Page title: {driver.title}")
+        
+        # Find the queue table and parse using actual semantics:
+        # - ID cell contains GC code and (D/T)
+        # - Title cell contains title and "Set to publish at ..."
+        header_aliases = {
+            "ID": {"id", "gc code", "code", "geocache code", "waypoint"},
+            "Title": {"title", "cache title", "name", "cache name"},
+            "Owner": {"owner", "placed by", "owner/placed by", "submitted by", "by"},
+        }
+
+        def extract_title_without_publish(text):
+            if not text:
+                return ""
+            parts = re.split(r"Set\s+to\s+publish\s+at", text, maxsplit=1, flags=re.IGNORECASE)
+            return clean_text(parts[0])
+
+        queue_table = None
+        queue_rows = []
+        best_score = -1
+
+        tables = driver.find_elements(By.CSS_SELECTOR, "table")
+        for table in tables:
+            rows = table.find_elements(By.CSS_SELECTOR, "tbody tr")
+            if not rows:
+                rows = table.find_elements(By.CSS_SELECTOR, "tr")
+
+            gc_count = 0
+            publish_count = 0
+            for row in rows[:400]:
+                row_text = row.text or ""
+                if re.search(r"\bGC[A-Z0-9]{4,}\b", row_text):
+                    gc_count += 1
+                if re.search(r"Set\s+to\s+publish\s+at", row_text, flags=re.IGNORECASE):
+                    publish_count += 1
+
+            score = gc_count + publish_count
+            if score > best_score:
+                best_score = score
+                queue_table = table
+                queue_rows = rows
+
+        if queue_table is None or not queue_rows:
+            update_status("Could not find queue table rows", ft.Colors.RED)
+            return (False, "Could not find queue table rows", None)
+
+        # Build optional index map for ID/Title/Owner when headers are available
+        column_map = {}
+        header_cells = queue_table.find_elements(By.CSS_SELECTOR, "thead th")
+        if not header_cells:
+            header_cells = queue_table.find_elements(By.CSS_SELECTOR, "tr th")
+        headers = [normalize_header(cell.text) for cell in header_cells]
+        for idx, header in enumerate(headers):
+            for output_name, aliases in header_aliases.items():
+                if header in aliases and output_name not in column_map:
+                    column_map[output_name] = idx
+
+        update_status(f"Selected queue table score={best_score}, column map={column_map}")
+
+        data = []
+        parsed_listing_rows = 0
+        for idx, row in enumerate(queue_rows):
+            try:
+                cells = row.find_elements(By.CSS_SELECTOR, "td")
+                if not cells:
+                    continue
+
+                full_text = row.text or ""
+                normalized_full_text = clean_text(full_text)
+
+                # Source texts per semantic column
+                id_source = ""
+                title_source = ""
+                owner_source = ""
+
+                if "ID" in column_map and column_map["ID"] < len(cells):
+                    id_source = cells[column_map["ID"]].text or ""
+                if "Title" in column_map and column_map["Title"] < len(cells):
+                    title_source = cells[column_map["Title"]].text or ""
+                if "Owner" in column_map and column_map["Owner"] < len(cells):
+                    owner_source = cells[column_map["Owner"]].text or ""
+
+                if not id_source:
+                    for cell in cells:
+                        txt = cell.text or ""
+                        if re.search(r"\bGC[A-Z0-9]{4,}\b", txt):
+                            id_source = txt
+                            break
+
+                if not title_source:
+                    for cell in cells:
+                        txt = cell.text or ""
+                        if re.search(r"Set\s+to\s+publish\s+at", txt, flags=re.IGNORECASE):
+                            title_source = txt
+                            break
+
+                if not id_source:
+                    id_source = full_text
+                if not title_source:
+                    title_source = full_text
+
+                id_match = re.search(r"\bGC[A-Z0-9]{4,}\b", id_source)
+                if not id_match:
+                    id_match = re.search(r"\bGC[A-Z0-9]{4,}\b", full_text)
+
+                # Ignore non-listing rows
+                if not id_match:
+                    continue
+                parsed_listing_rows += 1
+
+                dt_match = re.search(r"\((\d+(?:\.\d+)?)/(\d+(?:\.\d+)?)\)", id_source)
+                if not dt_match:
+                    dt_match = re.search(r"\((\d+(?:\.\d+)?)/(\d+(?:\.\d+)?)\)", full_text)
+
+                set_to_publish = extract_publish_from_text(title_source)
+                if not set_to_publish:
+                    set_to_publish = extract_publish_from_text(full_text)
+
+                title_value = extract_title_without_publish(title_source)
+                if not title_value:
+                    title_match = re.search(
+                        r"!\s*(.*?)\s*Set\s+to\s+publish\s+at",
+                        full_text,
+                        flags=re.IGNORECASE | re.DOTALL,
+                    )
+                    if title_match:
+                        title_value = "!" + clean_text(title_match.group(1))
+
+                row_data = {
+                    "ID": id_match.group(0),
+                    "Set to publish": clean_text(set_to_publish),
+                    "D": dt_match.group(1) if dt_match else "",
+                    "T": dt_match.group(2) if dt_match else "",
+                    "Title": clean_text(title_value),
+                    "Owner": clean_text(owner_source),
+                }
+
+                data.append(row_data)
+            except Exception as e:
+                print(f"  Warning: Could not parse row {idx}: {e}")
+                continue
+
+        # Ensure one row per listing ID
+        deduped_data = {}
+        for item in data:
+            listing_id = item.get("ID", "")
+            if not listing_id:
+                continue
+            deduped_data[listing_id] = item
+        data = list(deduped_data.values())
+
+        unique_count = len(data)
+        duplicate_count = max(parsed_listing_rows - unique_count, 0)
+        missing_publish_count = sum(1 for item in data if not (item.get("Set to publish") or "").strip())
+        missing_dt_count = sum(
+            1
+            for item in data
+            if not (item.get("D") or "").strip() or not (item.get("T") or "").strip()
+        )
+        
+        if not data:
+            update_status("No valid data extracted from rows", ft.Colors.RED)
+            return (False, "Could not extract data from table rows", None)
+        
+        update_status(
+            f"Extracted {unique_count} unique IDs (raw rows: {parsed_listing_rows}, duplicates collapsed: {duplicate_count}). Sorting by date..."
+        )
+
+        try:
+            data = sorted(data, key=lambda x: parse_datetime_for_sort(x["Set to publish"]))
+            update_status("Data sorted successfully")
+        except Exception as e:
+            update_status(f"Warning: Could not sort data: {e}", ft.Colors.ORANGE)
+        
+        # Write to CSV in the project root
+        output_path = Path(__file__).parent.parent / "geocaching_queue.csv"
+        update_status(f"Writing CSV to: {output_path}")
+        
+        fieldnames = ['ID', 'Set to publish', 'D', 'T', 'Title', 'Owner']
+        with open(output_path, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(data)
+        
+        summary_parts = [
+            f"Exported {unique_count} unique IDs",
+            f"missing publish: {missing_publish_count}",
+            f"missing D/T: {missing_dt_count}",
+        ]
+        summary_text = " | ".join(summary_parts)
+
+        if missing_publish_count > 0 or missing_dt_count > 0:
+            update_status(
+                f"✓ Created {output_path.name}. {summary_text}",
+                ft.Colors.ORANGE,
+            )
+        else:
+            update_status(
+                f"✓ Created {output_path.name}. {summary_text}",
+                ft.Colors.GREEN,
+            )
+
+        return (
+            True,
+            f"Created {output_path.name}. {summary_text}",
+            str(output_path),
+        )
+        
+    except Exception as e:
+        error_msg = f"Error during scraping: {str(e)}"
+        update_status(error_msg, ft.Colors.RED)
+        print(f"Exception: {e}")
+        import traceback
+        traceback.print_exc()
+        return (False, error_msg, None)
+    finally:
+        if driver:
+            try:
+                driver.quit()
+            except (NoSuchWindowException, Exception):
+                pass
+
+
 # Function to switch to a new tab that is not in the review_tabs list
 # -----------------------------------------------------------------------------
 def switch_to_new_tab(review_tabs, driver):

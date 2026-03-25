@@ -327,6 +327,57 @@ def main(page: ft.Page):
         )
         page.add(go_button)
 
+        # Add "Dump On-Hold to CSV" button
+        csv_status_text = ft.Text(
+            "",
+            size=12,
+            color=ft.Colors.LIGHT_BLUE,
+            text_align=ft.TextAlign.CENTER,
+        )
+
+        def on_csv_dump_click(e):
+            """Handler for Dump On-Hold to CSV button"""
+            import threading
+            
+            def update_csv_status(msg, color=None):
+                """Update the CSV status text in the UI"""
+                if color is None:
+                    color = ft.Colors.WHITE
+                csv_status_text.value = msg
+                csv_status_text.color = color
+                csv_status_text.update()
+            
+            def run_scrape():
+                """Run the scraping in a background thread"""
+                csv_status_text.value = "Scraping queue... please wait"
+                csv_status_text.color = ft.Colors.YELLOW
+                page.update()
+                
+                # Call the scraping function
+                success, message, csv_path = fn.scrape_queue_to_csv(
+                    (firefox_profile_path_ref.current.value or "").strip(),
+                    status_callback=update_csv_status
+                )
+                
+                # Update final status
+                if success:
+                    csv_status_text.color = ft.Colors.GREEN
+                else:
+                    csv_status_text.color = ft.Colors.RED
+                csv_status_text.value = message
+                page.update()
+            
+            # Run in a background thread so UI doesn't freeze
+            thread = threading.Thread(target=run_scrape, daemon=True)
+            thread.start()
+
+        dump_csv_button = ft.CupertinoFilledButton(
+            "Dump On-Hold to CSV",
+            on_click=on_csv_dump_click,
+        )
+        page.add(dump_csv_button)
+        page.add(csv_status_text)
+
         # Add completion message
         completion_message = ft.Text(
             "",
