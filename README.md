@@ -64,7 +64,10 @@ chmod +x run.sh
 Create a `.env` file in the project root with:
 ```
 PASSWORD=your_geocaching_password
+GEOCACHING_SCRAPE_QUEUE_URL=https://www.geocaching.com/admin/queue.aspx?filter=AllHolds&stateid=16&pagesize=-1
 ```
+
+You can point `GEOCACHING_SCRAPE_QUEUE_URL` to similar queue pages (different filters/states) without changing code.
 
 ## Recent Updates
 

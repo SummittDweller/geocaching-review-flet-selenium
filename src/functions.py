@@ -132,14 +132,16 @@ def _calculate_next_publish_time(current_date_str, current_time_military, increm
 
 # Function to scrape geocaching queue and dump to CSV
 # ============================================================================
-def scrape_queue_to_csv(firefox_profile_path, status_callback=None):
+def scrape_queue_to_csv(firefox_profile_path=None, status_callback=None, driver=None):
     """
     Scrape the geocaching queue page and save to CSV.
     
     Args:
-        firefox_profile_path: Path to Firefox profile with authenticated session
+        firefox_profile_path: Optional path to Firefox profile for fallback browser launch
         status_callback: Optional callback function to update UI with status messages
                         Should accept a string status message and optional color (ft.Colors)
+        driver: Optional existing Selenium WebDriver. When provided, scraping runs in
+                the already-open Firefox session instead of launching a new one.
     
     Returns:
         Tuple of (success: bool, message: str, csv_path: str or None)
@@ -148,8 +150,13 @@ def scrape_queue_to_csv(firefox_profile_path, status_callback=None):
     import re
     from pathlib import Path
     from datetime import datetime
+
+    load_dotenv()
     
-    driver = None
+    managed_driver = driver
+    using_existing_driver = managed_driver is not None
+    original_window_handle = None
+    scrape_window_handle = None
     
     def update_status(msg, color=None):
         """Helper to update UI status if callback provided"""
@@ -209,41 +216,58 @@ def scrape_queue_to_csv(firefox_profile_path, status_callback=None):
         return datetime.max
 
     try:
-        update_status("Starting Firefox for queue scraping...")
-        
-        # Setup Firefox with the provided profile
-        options = FirefoxOptions()
-        if firefox_profile_path and Path(firefox_profile_path).exists():
-            options.profile = webdriver.FirefoxProfile(firefox_profile_path)
-            update_status(f"Using profile: {firefox_profile_path}")
-        
-        # Initialize webdriver
-        service = None
-        if GeckoDriverManager is not None:
-            try:
-                managed_driver_path = GeckoDriverManager().install()
-                service = FirefoxService(executable_path=managed_driver_path)
-            except Exception as exc:
-                print(f"Warning: Could not use managed geckodriver: {exc}")
-        
-        if service is not None:
-            driver = webdriver.Firefox(options=options, service=service)
+        if using_existing_driver:
+            update_status("Using existing logged-in Firefox session for queue scraping...")
+            original_window_handle = managed_driver.current_window_handle
+            managed_driver.switch_to.new_window("tab")
+            scrape_window_handle = managed_driver.current_window_handle
         else:
-            driver = webdriver.Firefox(options=options)
+            update_status("Starting Firefox for queue scraping...")
+
+            # Setup Firefox with the provided profile
+            options = FirefoxOptions()
+            if firefox_profile_path and Path(firefox_profile_path).exists():
+                options.profile = webdriver.FirefoxProfile(firefox_profile_path)
+                update_status(f"Using profile: {firefox_profile_path}")
+
+            # Initialize webdriver
+            service = None
+            if GeckoDriverManager is not None:
+                try:
+                    managed_driver_path = GeckoDriverManager().install()
+                    service = FirefoxService(executable_path=managed_driver_path)
+                except Exception as exc:
+                    print(f"Warning: Could not use managed geckodriver: {exc}")
+
+            if service is not None:
+                managed_driver = webdriver.Firefox(options=options, service=service)
+            else:
+                managed_driver = webdriver.Firefox(options=options)
         
-        update_status("Navigating to queue...")
-        queue_url = "https://www.geocaching.com/admin/queue.aspx?filter=AllHolds&stateid=16&pagesize=-1"
-        driver.get(queue_url)
+        default_queue_url = "https://www.geocaching.com/admin/queue.aspx?filter=AllHolds&stateid=16&pagesize=-1"
+        queue_url = (os.getenv("GEOCACHING_SCRAPE_QUEUE_URL") or default_queue_url).strip()
+        if not queue_url:
+            queue_url = default_queue_url
+
+        update_status(f"Navigating to queue: {queue_url}")
+        managed_driver.get(queue_url)
+
+        if "account/signin" in (managed_driver.current_url or ""):
+            update_status(
+                "Queue page redirected to sign-in. Use Start to log in first, then retry dump.",
+                ft.Colors.RED,
+            )
+            return (False, "Queue scraping requires an authenticated session.", None)
         
         update_status("Waiting for table to load...")
         try:
-            WebDriverWait(driver, 30).until(
+            WebDriverWait(managed_driver, 30).until(
                 EC.presence_of_all_elements_located((By.TAG_NAME, "table"))
             )
         except TimeoutException:
             update_status("Page load timeout - checking content anyway...", ft.Colors.ORANGE)
         
-        update_status(f"Page title: {driver.title}")
+        update_status(f"Page title: {managed_driver.title}")
         
         # Find the queue table and parse using actual semantics:
         # - ID cell contains GC code and (D/T)
@@ -264,7 +288,7 @@ def scrape_queue_to_csv(firefox_profile_path, status_callback=None):
         queue_rows = []
         best_score = -1
 
-        tables = driver.find_elements(By.CSS_SELECTOR, "table")
+        tables = managed_driver.find_elements(By.CSS_SELECTOR, "table")
         for table in tables:
             rows = table.find_elements(By.CSS_SELECTOR, "tbody tr")
             if not rows:
@@ -459,11 +483,26 @@ def scrape_queue_to_csv(firefox_profile_path, status_callback=None):
         traceback.print_exc()
         return (False, error_msg, None)
     finally:
-        if driver:
-            try:
-                driver.quit()
-            except (NoSuchWindowException, Exception):
-                pass
+        if managed_driver:
+            if using_existing_driver:
+                # Keep the main browser session alive; only close the temporary scrape tab.
+                try:
+                    if scrape_window_handle and scrape_window_handle in managed_driver.window_handles:
+                        managed_driver.switch_to.window(scrape_window_handle)
+                        managed_driver.close()
+                except (NoSuchWindowException, Exception):
+                    pass
+
+                try:
+                    if original_window_handle and original_window_handle in managed_driver.window_handles:
+                        managed_driver.switch_to.window(original_window_handle)
+                except (NoSuchWindowException, Exception):
+                    pass
+            else:
+                try:
+                    managed_driver.quit()
+                except (NoSuchWindowException, Exception):
+                    pass
 
 
 # Function to switch to a new tab that is not in the review_tabs list

@@ -355,7 +355,7 @@ def main(page: ft.Page):
                 
                 # Call the scraping function
                 success, message, csv_path = fn.scrape_queue_to_csv(
-                    (firefox_profile_path_ref.current.value or "").strip(),
+                    driver=driver,
                     status_callback=update_csv_status
                 )
                 
