@@ -14,6 +14,10 @@ A work in progress demonstrating Flet with Selenium for geocaching review tasks.
 - **Error Handling**: Validates inputs and provides clear error messages
 - **Queue Dump to CSV**: Export on-hold listings to a sorted CSV file
 
+## Automation Selector Reference
+
+- See [HTML_ELEMENTS.md](HTML_ELEMENTS.md) for a complete list of HTML elements/selectors used by Selenium and why each is needed.
+
 ## Installation
 
 Run the included `run.sh` script which will:
@@ -61,11 +65,28 @@ chmod +x run.sh
 
 ## Configuration
 
-Create a `.env` file in the project root with:
+Copy `example.env` to `.env` in the project root, then fill in your real values:
+
+```bash
+cp example.env .env
 ```
+
+Template contents:
+
+```
+USERNAME=your_geocaching_username
 PASSWORD=your_geocaching_password
+FIREFOX_PROFILE_PATH=/full/path/to/your/firefox/profile
 GEOCACHING_SCRAPE_QUEUE_URL=https://www.geocaching.com/admin/queue.aspx?filter=AllHolds&stateid=16&pagesize=-1
 ```
+
+The app also accepts the older aliases `GEOCACHING_USERNAME` and `GEOCACHING_FIREFOX_PROFILE`.
+
+`GEOCACHING_SCRAPE_QUEUE_URL` is used to open the queue page after login and as the CSV export target page.
+
+After opening that URL, the app sets the queue filter by workflow:
+- Startup/normal processing (`GO!`) forces filter value `1` (**All Caches Not On Hold**).
+- **Dump On-Hold to CSV** forces filter value `3` (**All Caches I'm Holding**).
 
 You can point `GEOCACHING_SCRAPE_QUEUE_URL` to similar queue pages (different filters/states) without changing code.
 

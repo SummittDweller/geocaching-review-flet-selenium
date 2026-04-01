@@ -41,11 +41,19 @@ def main(page: ft.Page):
         )
     )
 
+    env_firefox_profile_path = fn.get_env_value("FIREFOX_PROFILE_PATH", "GEOCACHING_FIREFOX_PROFILE")
+    env_geocaching_username = fn.get_env_value("USERNAME", "GEOCACHING_USERNAME")
+    env_geocaching_password = fn.get_env_value("PASSWORD")
+
     # Load persisted values for splash screen
-    stored_firefox_profile_path = page.client_storage.get("firefox_profile_path") or ""
-    stored_geocaching_username = page.client_storage.get("geocaching_username") or ""
+    stored_firefox_profile_path = page.client_storage.get("firefox_profile_path") or env_firefox_profile_path or ""
+    stored_geocaching_username = page.client_storage.get("geocaching_username") or env_geocaching_username or ""
     stored_remember_password = bool(page.client_storage.get("remember_geocaching_password"))
-    stored_geocaching_password = page.client_storage.get("geocaching_password") or "" if stored_remember_password else ""
+    stored_geocaching_password = (
+        page.client_storage.get("geocaching_password")
+        if stored_remember_password
+        else ""
+    ) or env_geocaching_password or ""
 
     def _update_start_button_state():
         profile_ok = bool((firefox_profile_path_ref.current.value or "").strip()) if firefox_profile_path_ref.current else False

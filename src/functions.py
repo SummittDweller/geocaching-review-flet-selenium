@@ -17,7 +17,7 @@ from app_refs import (
 )
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchWindowException
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
@@ -30,6 +30,79 @@ try:
     from webdriver_manager.firefox import GeckoDriverManager
 except Exception:
     GeckoDriverManager = None
+
+
+def get_env_value(*keys):
+    """Return the first configured environment value from the provided keys."""
+    load_dotenv()
+    for key in keys:
+        value = os.getenv(key)
+        if value:
+            return value
+    return ""
+
+
+def get_configured_queue_url():
+    """Return the configured queue URL used for startup and queue scraping."""
+    default_queue_url = "https://www.geocaching.com/admin/queue.aspx?filter=AllHolds&stateid=16&pagesize=-1"
+    queue_url = (get_env_value("GEOCACHING_SCRAPE_QUEUE_URL") or default_queue_url).strip()
+    return queue_url or default_queue_url
+
+
+def _ensure_queue_filter_value(driver, desired_value, timeout=10):
+    """Set queue filter dropdown to the desired value when present.
+
+    Filter values observed in the queue UI:
+    - 1: All Caches Not On Hold (startup/default workflow)
+    - 3: All Caches I'm Holding (dump on-hold CSV workflow)
+    """
+    desired = str(desired_value)
+    try:
+        filter_select = WebDriverWait(driver, timeout).until(
+            EC.presence_of_element_located((By.ID, "ctl00_ContentBody_ddFilter"))
+        )
+    except TimeoutException:
+        return False
+
+    current = (filter_select.get_attribute("value") or "").strip()
+    if current == desired:
+        return True
+
+    try:
+        Select(filter_select).select_by_value(desired)
+    except Exception:
+        # Fallback for non-standard select behavior.
+        driver.execute_script(
+            """
+            const sel = arguments[0];
+            const val = arguments[1];
+            sel.value = val;
+            sel.dispatchEvent(new Event('input', { bubbles: true }));
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+            """,
+            filter_select,
+            desired,
+        )
+
+    try:
+        WebDriverWait(driver, timeout).until(
+            lambda d: (d.find_element(By.ID, "ctl00_ContentBody_ddFilter").get_attribute("value") or "").strip() == desired
+        )
+    except Exception:
+        pass
+
+    return True
+
+
+def _get_queue_filter_info(driver):
+    """Return current queue filter `(value, label)` when available."""
+    try:
+        filter_select = driver.find_element(By.ID, "ctl00_ContentBody_ddFilter")
+        value = (filter_select.get_attribute("value") or "").strip()
+        label = (Select(filter_select).first_selected_option.text or "").strip()
+        return value, label
+    except Exception:
+        return "", ""
 
 # Global counter and tracker for timed publishing group
 # Tracks which listing in the current timed publishing group is being processed
@@ -244,13 +317,17 @@ def scrape_queue_to_csv(firefox_profile_path=None, status_callback=None, driver=
             else:
                 managed_driver = webdriver.Firefox(options=options)
         
-        default_queue_url = "https://www.geocaching.com/admin/queue.aspx?filter=AllHolds&stateid=16&pagesize=-1"
-        queue_url = (os.getenv("GEOCACHING_SCRAPE_QUEUE_URL") or default_queue_url).strip()
-        if not queue_url:
-            queue_url = default_queue_url
+        queue_url = get_configured_queue_url()
 
         update_status(f"Navigating to queue: {queue_url}")
         managed_driver.get(queue_url)
+
+        # Dump to CSV is specifically for "All Caches I'm Holding" (filter value 3).
+        update_status("Selecting queue filter: All Caches I'm Holding...")
+        _ensure_queue_filter_value(managed_driver, "3")
+        active_filter_value, active_filter_label = _get_queue_filter_info(managed_driver)
+        if active_filter_label:
+            update_status(f"Queue filter active: {active_filter_label} (value {active_filter_value})")
 
         if "account/signin" in (managed_driver.current_url or ""):
             update_status(
@@ -292,7 +369,8 @@ def scrape_queue_to_csv(firefox_profile_path=None, status_callback=None, driver=
         for table in tables:
             rows = table.find_elements(By.CSS_SELECTOR, "tbody tr")
             if not rows:
-                rows = table.find_elements(By.CSS_SELECTOR, "tr")
+                # Fallback to data rows only when tbody is missing.
+                rows = table.find_elements(By.XPATH, "./tr[td]")
 
             gc_count = 0
             publish_count = 0
@@ -317,7 +395,8 @@ def scrape_queue_to_csv(firefox_profile_path=None, status_callback=None, driver=
         column_map = {}
         header_cells = queue_table.find_elements(By.CSS_SELECTOR, "thead th")
         if not header_cells:
-            header_cells = queue_table.find_elements(By.CSS_SELECTOR, "tr th")
+            # Fallback to first-row headers when thead is absent.
+            header_cells = queue_table.find_elements(By.XPATH, "./tbody/tr[1]/th | ./tr[1]/th")
         headers = [normalize_header(cell.text) for cell in header_cells]
         for idx, header in enumerate(headers):
             for output_name, aliases in header_aliases.items():
@@ -856,13 +935,13 @@ def set_timed_pub(driver, handle, review_tabs):
 def initialize_driver(page, username=None, password=None):
 
     load_dotenv( )     # Load environment variables from .env file
-    expected_user = (username or os.getenv("GEOCACHING_USERNAME") or "").strip( )
-    effective_password = password if password is not None else (os.getenv("PASSWORD") or "")
+    expected_user = (username or get_env_value("USERNAME", "GEOCACHING_USERNAME") or "").strip( )
+    effective_password = password if password is not None else get_env_value("PASSWORD")
+
+    queue_url = get_configured_queue_url()
 
     if not expected_user:
         raise ValueError("Startup halted: Geocaching username is required.")
-    if not effective_password:
-        raise ValueError("Startup halted: Geocaching password is required.")
 
     # Update progress
     progress_bar_ref.current.value = 0.1
@@ -885,22 +964,21 @@ def initialize_driver(page, username=None, password=None):
         profile_path = os.path.expanduser("~/.mozilla/firefox")
     
     # Find the profile directory
-    if os.path.exists(profile_path):
-        import glob
-        ui_profile = None
-        if firefox_profile_path_ref.current:
-            ui_profile = (firefox_profile_path_ref.current.value or "").strip()
-        preferred_profile = ui_profile or os.getenv("GEOCACHING_FIREFOX_PROFILE")
-        if preferred_profile and os.path.exists(preferred_profile):
-            options.profile = webdriver.FirefoxProfile(preferred_profile)
-            source = "UI" if ui_profile else "env"
-            print(f"Using Firefox profile ({source}): {preferred_profile}")
-        else:
-            profiles = glob.glob(os.path.join(profile_path, "*.default*"))
-            if profiles:
-                default_profile = profiles[0]
-                options.profile = webdriver.FirefoxProfile(default_profile)
-                print(f"Using Firefox profile: {default_profile}")
+    import glob
+    ui_profile = None
+    if firefox_profile_path_ref.current:
+        ui_profile = (firefox_profile_path_ref.current.value or "").strip()
+    preferred_profile = ui_profile or get_env_value("FIREFOX_PROFILE_PATH", "GEOCACHING_FIREFOX_PROFILE")
+    if preferred_profile and os.path.exists(preferred_profile):
+        options.profile = webdriver.FirefoxProfile(preferred_profile)
+        source = "UI" if ui_profile else "env"
+        print(f"Using Firefox profile ({source}): {preferred_profile}")
+    elif os.path.exists(profile_path):
+        profiles = glob.glob(os.path.join(profile_path, "*.default*"))
+        if profiles:
+            default_profile = profiles[0]
+            options.profile = webdriver.FirefoxProfile(default_profile)
+            print(f"Using Firefox profile: {default_profile}")
 
     # Update progress
     progress_bar_ref.current.value = 0.3
@@ -927,7 +1005,7 @@ def initialize_driver(page, username=None, password=None):
 
     # Update progress
     progress_bar_ref.current.value = 0.5
-    loading_status_ref.current.value = "Loading geocaching.com admin page..."
+    loading_status_ref.current.value = "Loading geocaching.com..."
     progress_bar_ref.current.update()
     loading_status_ref.current.update()
 
@@ -963,12 +1041,19 @@ def initialize_driver(page, username=None, password=None):
 
     # Update progress
     progress_bar_ref.current.value = 0.95
-    loading_status_ref.current.value = "Loading review queue..."
+    loading_status_ref.current.value = "Loading configured queue..."
     progress_bar_ref.current.update()
     loading_status_ref.current.update()
 
-    # Open the review queue page and interact with it to open desired tabs
-    driver.get("https://www.geocaching.com/admin/queue.aspx?filter=NotHeld&stateid=16&pagesize=20")
+    # Open the configured queue page from .env
+    driver.get(queue_url)
+
+    # Normal startup workflow should open "All Caches Not On Hold" (filter value 1).
+    _ensure_queue_filter_value(driver, "1")
+    active_filter_value, active_filter_label = _get_queue_filter_info(driver)
+    if active_filter_label:
+        loading_status_ref.current.value = f"Queue filter active: {active_filter_label} (value {active_filter_value})"
+        loading_status_ref.current.update()
 
     # Final progress update
     progress_bar_ref.current.value = 1.0
@@ -1061,6 +1146,19 @@ def _close_tampermonkey_changes_tabs(driver):
 
 def _detect_geocaching_username(driver, expected_username=None):
     """Best-effort detection of active geocaching username from page source."""
+    try:
+        # Prefer direct DOM lookup of the signed-in username badge when available.
+        username_nodes = driver.find_elements(By.CSS_SELECTOR, "span.username")
+        for node in username_nodes:
+            txt = (node.text or "").strip()
+            if not txt:
+                continue
+            if expected_username and txt.lower() == expected_username.lower():
+                return expected_username
+            return txt
+    except Exception:
+        pass
+
     source = (driver.page_source or "").lower()
     if expected_username and expected_username.lower() in source:
         return expected_username
@@ -1092,14 +1190,32 @@ def _perform_geocaching_login(driver, username, password):
 
 
 def _ensure_expected_geocaching_user(driver, expected_username, password):
-    """Always reset geocaching auth state and sign in using the requested credentials."""
+    """Ensure expected geocaching identity is active, re-auth only when needed."""
     if status_text_ref.current:
-        status_text_ref.current.value = f"Signing in as {expected_username}..."
+        status_text_ref.current.value = f"Checking active login for {expected_username}..."
         status_text_ref.current.color = "orange"
         status_text_ref.current.update()
 
     # Normalize browser state first
     _close_tampermonkey_changes_tabs(driver)
+
+    # Fast path: if already signed in as the expected user, skip explicit login.
+    driver.get("https://www.geocaching.com/admin")
+    _dismiss_cookie_banner(driver)
+    detected_user = _detect_geocaching_username(driver, expected_username=expected_username)
+    if detected_user == expected_username:
+        print(f"Already signed in as {expected_username}; skipping explicit login.")
+        return expected_username
+
+    if not password:
+        raise RuntimeError(
+            "Startup halted: password is required because an explicit login is needed."
+        )
+
+    if status_text_ref.current:
+        status_text_ref.current.value = f"Signing in as {expected_username}..."
+        status_text_ref.current.color = "orange"
+        status_text_ref.current.update()
 
     # Visit geocaching domain, clear cookies/storage, and force sign-out to avoid sticky profile sessions
     driver.get("https://www.geocaching.com")
@@ -1147,10 +1263,19 @@ def start_selenium(driver):
         print("Driver is not initialized. Please run initialize_driver first.")
         return
     
-    # Ensure the driver is on the correct page
-    if driver.current_url != "https://www.geocaching.com/admin/queue.aspx?filter=NotHeld&stateid=16&pagesize=20":
-        print("Driver is not on the correct page. Please navigate to the review queue page first.") 
+    current_url = (driver.current_url or "").lower()
+
+    # Ensure the driver is on a queue page; filter/query may vary by workflow.
+    if "geocaching.com/admin/queue.aspx" not in current_url:
+        expected_queue_url = get_configured_queue_url()
+        print(f"Driver is not on a queue page ({expected_queue_url}). Please navigate to the review queue page first.")
         return
+
+    active_filter_value, active_filter_label = _get_queue_filter_info(driver)
+    if active_filter_label:
+        print(f"Active queue filter before tab processing: {active_filter_label} (value {active_filter_value})")
+    else:
+        print("Active queue filter before tab processing: unknown")
     
     # Your automation code here (e.g., finding elements, clicking buttons, entering text)
     current_handle = driver.current_window_handle
@@ -1202,9 +1327,14 @@ def go(driver, page):
             print(f"Skipping non-review tab: {driver.current_url}")
             continue
 
-        # Fetch all links in the current tab
-        links = driver.find_elements("tag name", "a")
-        print(f"Found {len(links)} links in the current tab.")  
+        # Fetch relevant links in the current tab for diagnostics.
+        all_links = driver.find_elements("tag name", "a")
+        links = [
+            link for link in all_links
+            if "review.aspx" in ((link.get_attribute("href") or "").lower())
+            or "/admin" in ((link.get_attribute("href") or "").lower())
+        ]
+        print(f"Found {len(links)} relevant links in the current tab (from {len(all_links)} total).")
         # for link in links:
         #     print(f"Link text: {link.text}, URL: {link.get_attribute('href')}")
 
