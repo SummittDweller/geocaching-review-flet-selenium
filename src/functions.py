@@ -68,6 +68,8 @@ def _ensure_queue_filter_value(driver, desired_value, timeout=10):
     if current == desired:
         return True
 
+    original_select = filter_select
+
     try:
         Select(filter_select).select_by_value(desired)
     except Exception:
@@ -90,6 +92,27 @@ def _ensure_queue_filter_value(driver, desired_value, timeout=10):
         )
     except Exception:
         pass
+
+    try:
+        filter_button = WebDriverWait(driver, timeout).until(
+            EC.element_to_be_clickable((By.ID, "ctl00_ContentBody_btnFilter"))
+        )
+        filter_button.click()
+    except Exception:
+        driver.execute_script(
+            "document.getElementById(arguments[0])?.click();",
+            "ctl00_ContentBody_btnFilter",
+        )
+
+    try:
+        WebDriverWait(driver, timeout).until(EC.staleness_of(original_select))
+    except Exception:
+        try:
+            WebDriverWait(driver, timeout).until(
+                lambda d: (d.find_element(By.ID, "ctl00_ContentBody_ddFilter").get_attribute("value") or "").strip() == desired
+            )
+        except Exception:
+            pass
 
     return True
 

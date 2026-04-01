@@ -88,6 +88,8 @@ After opening that URL, the app sets the queue filter by workflow:
 - Startup/normal processing (`GO!`) forces filter value `1` (**All Caches Not On Hold**).
 - **Dump On-Hold to CSV** forces filter value `3` (**All Caches I'm Holding**).
 
+After changing the dropdown, the app clicks the queue page's `Filter` button to apply the selection.
+
 You can point `GEOCACHING_SCRAPE_QUEUE_URL` to similar queue pages (different filters/states) without changing code.
 
 ## Recent Updates

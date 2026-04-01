@@ -7,6 +7,7 @@ This document lists every HTML element locator currently used by the automation 
 | Locator type | Selector | Why the script looks for it | Source | Stability risk | Hardened alternative |
 |---|---|---|---|---|---|
 | `By.ID` | `ctl00_ContentBody_ddFilter` | Reads/sets the queue filter dropdown so startup uses value `1` (All Caches Not On Hold) and Dump On-Hold to CSV uses value `3` (All Caches I'm Holding). | [src/functions.py#L62](src/functions.py#L62), [src/functions.py#L327](src/functions.py#L327), [src/functions.py#L1052](src/functions.py#L1052) | Low | Keep as-is; `id` is stable and purpose-specific. |
+| `By.ID` | `ctl00_ContentBody_btnFilter` | Clicks the Filter submit button after changing the queue dropdown because changing the selected value alone does not activate the new queue filter. | [src/functions.py#L98](src/functions.py#L98) | Low | Keep as-is; paired with the dropdown it is the correct activation control. |
 
 ## Queue Scrape (Dump On-Hold to CSV)
 
