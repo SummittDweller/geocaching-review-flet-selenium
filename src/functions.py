@@ -19,7 +19,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchWindowException
+from selenium.common.exceptions import TimeoutException, NoSuchWindowException, WebDriverException
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from selenium.webdriver.firefox.service import Service as FirefoxService
 from dotenv import load_dotenv
@@ -47,6 +47,45 @@ def get_configured_queue_url():
     default_queue_url = "https://www.geocaching.com/admin/queue.aspx?filter=AllHolds&stateid=16&pagesize=-1"
     queue_url = (get_env_value("GEOCACHING_SCRAPE_QUEUE_URL") or default_queue_url).strip()
     return queue_url or default_queue_url
+
+
+def _create_firefox_driver(options, status_callback=None):
+    """Start Firefox, preferring Selenium's driver resolution on macOS."""
+    configured_driver_path = (get_env_value("GECKODRIVER_PATH") or "").strip()
+
+    def _update_status(message):
+        if status_callback:
+            status_callback(message, ft.Colors.ORANGE)
+
+    if configured_driver_path:
+        if not os.path.exists(configured_driver_path):
+            print(f"Warning: GECKODRIVER_PATH does not exist: {configured_driver_path}")
+        else:
+            print(f"Using configured geckodriver: {configured_driver_path}")
+            try:
+                service = FirefoxService(executable_path=configured_driver_path)
+                return webdriver.Firefox(options=options, service=service)
+            except WebDriverException as exc:
+                print(
+                    f"Warning: configured geckodriver failed at {configured_driver_path}; "
+                    f"retrying with Selenium driver resolution. {exc}"
+                )
+                _update_status("Configured geckodriver failed; retrying Firefox startup...")
+
+    try:
+        return webdriver.Firefox(options=options)
+    except WebDriverException as default_exc:
+        if GeckoDriverManager is None:
+            raise
+
+        try:
+            managed_driver_path = GeckoDriverManager().install()
+            print(f"Retrying with managed geckodriver: {managed_driver_path}")
+            _update_status("Default Firefox startup failed; retrying with managed geckodriver...")
+            service = FirefoxService(executable_path=managed_driver_path)
+            return webdriver.Firefox(options=options, service=service)
+        except Exception:
+            raise default_exc
 
 
 def _ensure_queue_filter_value(driver, desired_value, timeout=10):
@@ -327,18 +366,7 @@ def scrape_queue_to_csv(firefox_profile_path=None, status_callback=None, driver=
                 update_status(f"Using profile: {firefox_profile_path}")
 
             # Initialize webdriver
-            service = None
-            if GeckoDriverManager is not None:
-                try:
-                    managed_driver_path = GeckoDriverManager().install()
-                    service = FirefoxService(executable_path=managed_driver_path)
-                except Exception as exc:
-                    print(f"Warning: Could not use managed geckodriver: {exc}")
-
-            if service is not None:
-                managed_driver = webdriver.Firefox(options=options, service=service)
-            else:
-                managed_driver = webdriver.Firefox(options=options)
+            managed_driver = _create_firefox_driver(options, status_callback=update_status)
         
         queue_url = get_configured_queue_url()
 
@@ -1009,19 +1037,13 @@ def initialize_driver(page, username=None, password=None):
     progress_bar_ref.current.update()
     loading_status_ref.current.update()
 
-    service = None
-    if GeckoDriverManager is not None:
-        try:
-            managed_driver_path = GeckoDriverManager().install()
-            service = FirefoxService(executable_path=managed_driver_path)
-            print(f"Using managed geckodriver: {managed_driver_path}")
-        except Exception as exc:
-            print(f"Warning: failed to resolve managed geckodriver, falling back to PATH. {exc}")
+    def _startup_status_callback(message, color=None):
+        loading_status_ref.current.value = message
+        if color is not None:
+            loading_status_ref.current.color = color
+        loading_status_ref.current.update()
 
-    if service is not None:
-        driver = webdriver.Firefox(options=options, service=service)
-    else:
-        driver = webdriver.Firefox(options=options)
+    driver = _create_firefox_driver(options, status_callback=_startup_status_callback)
 
     # Close noisy extension tabs (Tampermonkey changes/changelog) opened at startup
     _close_tampermonkey_changes_tabs(driver)
