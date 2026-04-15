@@ -119,7 +119,7 @@ def main(page: ft.Page):
     page.add(geocaching_username_field)
 
     geocaching_password_field = ft.TextField(
-        label="Geocaching password",
+        label="Geocaching password (or use .env PASSWORD if available)",
         value=stored_geocaching_password,
         ref=geocaching_password_ref,
         password=True,
@@ -170,7 +170,25 @@ def main(page: ft.Page):
         # Launch the Selenium driver and login
         try:
             username = (geocaching_username_ref.current.value or "").strip()
-            password = geocaching_password_ref.current.value or ""
+            
+            # SECURITY: Password behavior depends on whether .env has a PASSWORD entry:
+            # - If .env PASSWORD exists: it MUST be used, and UI input must match it (if entered)
+            # - If .env PASSWORD missing: use UI input (previous behavior)
+            ui_password = (geocaching_password_ref.current.value or "").strip()
+            env_password = env_geocaching_password  # From .env file (may be empty)
+            
+            # If .env has a password, it takes precedence and UI input must validate against it
+            if env_password:
+                if ui_password and ui_password != env_password:
+                    raise ValueError("Password mismatch: UI password does not match .env file password.")
+                password = env_password
+            else:
+                # No .env password: use UI input (fallback behavior)
+                password = ui_password
+            
+            if not password:
+                raise ValueError("Geocaching password is required.")
+            
             driver = fn.initialize_driver(page, username=username, password=password)
         except Exception as exc:
             error_message = str(exc).strip() or "Startup failed."

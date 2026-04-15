@@ -84,7 +84,22 @@ The app also accepts the older aliases `GEOCACHING_USERNAME` and `GEOCACHING_FIR
 
 `GEOCACHING_SCRAPE_QUEUE_URL` is used to open the queue page after login and as the CSV export target page.
 
-After opening that URL, the app sets the queue filter by workflow:
+### Password Handling
+
+The app supports two password modes:
+
+**With `.env` PASSWORD** (recommended for security):
+- The `.env` PASSWORD value is used for login
+- If you enter a password in the UI field, it must match the `.env` PASSWORD
+- If passwords don't match, startup will fail with a validation error
+
+**Without `.env` PASSWORD** (fallback behavior):
+- The app uses the password entered in the UI field
+- Allows password-free `.env` files while still accepting credentials via the UI
+
+### Queue Filter Configuration
+
+After opening `GEOCACHING_SCRAPE_QUEUE_URL`, the app sets the queue filter by workflow:
 - Startup/normal processing (`GO!`) forces filter value `1` (**All Caches Not On Hold**).
 - **Dump On-Hold to CSV** forces filter value `3` (**All Caches I'm Holding**).
 

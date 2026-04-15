@@ -987,7 +987,15 @@ def initialize_driver(page, username=None, password=None):
 
     load_dotenv( )     # Load environment variables from .env file
     expected_user = (username or get_env_value("USERNAME", "GEOCACHING_USERNAME") or "").strip( )
-    effective_password = password if password is not None else get_env_value("PASSWORD")
+    
+    # SECURITY: Password handling depends on .env configuration:
+    # - If .env PASSWORD exists: caller must pass it (validated in main.py against UI input)
+    # - If .env PASSWORD missing: password from UI is used (fallback behavior)
+    env_password = get_env_value("PASSWORD")
+    effective_password = password if password is not None else env_password
+    
+    if not effective_password:
+        raise ValueError("Startup halted: Geocaching password is required (not found in .env or UI).")
 
     queue_url = get_configured_queue_url()
 
@@ -1215,7 +1223,11 @@ def _detect_geocaching_username(driver, expected_username=None):
 
 
 def _perform_geocaching_login(driver, username, password):
-    """Fill the sign-in form and submit credentials."""
+    """Fill the sign-in form and submit credentials.
+    
+    SECURITY: Password passed here comes from .env (if available) or UI input.
+    If .env PASSWORD exists, caller validates UI input matches it.
+    """
     username_field = WebDriverWait(driver, 8).until(
         EC.presence_of_element_located((By.ID, "UsernameOrEmail"))
     )
