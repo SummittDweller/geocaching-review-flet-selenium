@@ -5,6 +5,7 @@ import flet as ft
 # -----------------------------------------------------------------------------
 bookmark_checkbox_ref = ft.Ref[ft.Checkbox]( )
 bookmark_name_ref = ft.Ref[ft.TextField]( )
+hold_all_checkbox_ref = ft.Ref[ft.Checkbox]( )
 timed_pub_checkbox_ref = ft.Ref[ft.Checkbox]( )
 timed_pub_date_ref = ft.Ref[ft.TextField]( )
 timed_pub_time_ref = ft.Ref[ft.TextField]( )

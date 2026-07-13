@@ -2,6 +2,7 @@ import flet as ft
 from app_refs import (
     bookmark_checkbox_ref,
     bookmark_name_ref,
+    hold_all_checkbox_ref,
     timed_pub_checkbox_ref,
     timed_pub_date_ref,
     timed_pub_time_ref,
@@ -25,6 +26,7 @@ from selenium.webdriver.firefox.service import Service as FirefoxService
 from dotenv import load_dotenv
 import os
 import time
+from urllib.parse import urlparse, parse_qs
 
 try:
     from webdriver_manager.firefox import GeckoDriverManager
@@ -849,6 +851,151 @@ def assign_to_bookmark_list(driver, handle, review_tabs):
     driver.switch_to.window(handle)
 
 
+def _extract_guid_from_url(url):
+    try:
+        parsed = urlparse(url or "")
+        query = parse_qs(parsed.query)
+        return (query.get("guid") or [""])[0].strip()
+    except Exception:
+        return ""
+
+
+def _click_hold_control(driver, timeout_seconds=6):
+    """Click a hold action if present on the currently active page."""
+    hold_locators = [
+        (By.ID, "ctl00_ContentBody_lnkHold"),
+        (By.ID, "ctl00_ContentBody_lnkOnHold"),
+        (By.ID, "ctl00_ContentBody_lnkToggleHold"),
+        (
+            By.XPATH,
+            "//a[contains(translate(@id,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'hold')]"
+            "|//button[contains(translate(@id,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'hold')]"
+            "|//input[contains(translate(@id,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'hold')]"
+        ),
+        (
+            By.XPATH,
+            "//a[contains(translate(normalize-space(string(.)),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'hold')]"
+            "|//button[contains(translate(normalize-space(string(.)),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'hold')]"
+            "|//input[contains(translate(@value,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'hold')]"
+        ),
+    ]
+
+    hold_button = None
+    for locator in hold_locators:
+        try:
+            hold_button = WebDriverWait(driver, timeout_seconds).until(EC.element_to_be_clickable(locator))
+            break
+        except Exception:
+            continue
+
+    if not hold_button:
+        return False
+
+    driver.execute_script("arguments[0].scrollIntoView(true);", hold_button)
+    time.sleep(0.25)
+    try:
+        hold_button.click()
+    except Exception:
+        driver.execute_script("arguments[0].click();", hold_button)
+
+    try:
+        alert = WebDriverWait(driver, 2).until(EC.alert_is_present())
+        print("Hold confirmation alert detected, accepting...")
+        alert.accept()
+    except Exception:
+        pass
+
+    return True
+
+
+def _hold_from_queue_row(driver, listing_guid):
+    """Fallback: hold listing via its row action in the queue tab."""
+    if not listing_guid:
+        return False
+
+    all_handles = list(driver.window_handles)
+    queue_handles = []
+    for h in all_handles:
+        try:
+            driver.switch_to.window(h)
+            if "geocaching.com/admin/queue.aspx" in (driver.current_url or "").lower():
+                queue_handles.append(h)
+        except Exception:
+            continue
+
+    for queue_handle in queue_handles:
+        try:
+            driver.switch_to.window(queue_handle)
+            _ensure_queue_filter_value(driver, "1")
+
+            row_xpath = (
+                "//tr[.//a[contains(@href, 'guid={guid}')]]"
+            ).format(guid=listing_guid)
+            row = WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.XPATH, row_xpath))
+            )
+
+            hold_in_row_xpath = (
+                ".//a[contains(translate(normalize-space(string(.)),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'hold')]"
+                "|.//button[contains(translate(normalize-space(string(.)),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'hold')]"
+                "|.//input[contains(translate(@value,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'hold')]"
+                "|.//*[contains(translate(@id,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'hold')]"
+            )
+            hold_controls = row.find_elements(By.XPATH, hold_in_row_xpath)
+            if not hold_controls:
+                continue
+
+            hold_control = hold_controls[0]
+            driver.execute_script("arguments[0].scrollIntoView(true);", hold_control)
+            time.sleep(0.25)
+            try:
+                hold_control.click()
+            except Exception:
+                driver.execute_script("arguments[0].click();", hold_control)
+
+            try:
+                alert = WebDriverWait(driver, 2).until(EC.alert_is_present())
+                print("Queue hold confirmation alert detected, accepting...")
+                alert.accept()
+            except Exception:
+                pass
+
+            return True
+        except Exception:
+            continue
+
+    return False
+
+
+# Function to set a listing to hold
+# -----------------------------------------------------------------------------
+def hold_listing(driver, handle):
+
+    driver.switch_to.window(handle)
+    print(f"Switched to tab with URL: {driver.current_url}")
+    listing_url = driver.current_url
+    listing_guid = _extract_guid_from_url(listing_url)
+
+    status_text_ref.current.value = "Setting listing to hold..."
+    status_text_ref.current.update()
+
+    held = _click_hold_control(driver, timeout_seconds=5)
+
+    if not held:
+        print("Direct hold control not found on review tab. Trying queue-row fallback...")
+        held = _hold_from_queue_row(driver, listing_guid)
+        driver.switch_to.window(handle)
+
+    if not held:
+        raise ValueError(
+            f"Could not find a Hold action on this listing page or queue row (guid={listing_guid or 'unknown'})."
+        )
+
+    time.sleep(0.6)
+    status_text_ref.current.value = "Listing set to hold."
+    status_text_ref.current.update()
+
+
 # Function to set the current page for timed publication
 # -----------------------------------------------------------------------------
 def set_timed_pub(driver, handle, review_tabs):
@@ -1403,6 +1550,11 @@ def go(driver, page):
                 print(f"\n[Listing {listing_number}] Adding to bookmark...")
                 assign_to_bookmark_list(driver, handle, review_tabs)
                 print(f"[Listing {listing_number}] Bookmark added successfully")
+
+            if hold_all_checkbox_ref.current.value:
+                print(f"\n[Listing {listing_number}] Setting listing to hold...")
+                hold_listing(driver, handle)
+                print(f"[Listing {listing_number}] Hold set successfully")
                 
             if timed_pub_checkbox_ref.current.value:
                 print(f"\n[Listing {listing_number}] Setting timed publish...")
@@ -1519,6 +1671,14 @@ def timed_pub_checkbox_state(e):
         return True
     else:
         print("Timed pub checkbox is unchecked.")
+        return False
+
+def hold_all_checkbox_state(e):
+    if hold_all_checkbox_ref.current.value:
+        print("Hold all checkbox is checked!")
+        return True
+    else:
+        print("Hold all checkbox is unchecked.")
         return False
 
 def disable_with_same_message_checkbox_state(e):

@@ -4,6 +4,7 @@ from datetime import date as dt_date
 from app_refs import (
     bookmark_checkbox_ref,
     bookmark_name_ref,
+    hold_all_checkbox_ref,
     timed_pub_checkbox_ref,
     timed_pub_date_ref,
     timed_pub_time_ref,
@@ -227,7 +228,33 @@ def main(page: ft.Page):
         )
         page.add(bookmark_name_field)
 
-        timed_pub_checkbox = ft.Checkbox(label="Add to Timed Publishing", value=False, ref=timed_pub_checkbox_ref)
+        hold_all_checkbox = ft.Checkbox(
+            label="Hold All",
+            value=False,
+            ref=hold_all_checkbox_ref,
+        )
+        page.add(hold_all_checkbox)
+
+        def _sync_hold_all_disabled_state():
+            timed_selected = bool(timed_pub_checkbox_ref.current and timed_pub_checkbox_ref.current.value)
+            disable_selected = bool(
+                disable_with_same_message_checkbox_ref.current
+                and disable_with_same_message_checkbox_ref.current.value
+            )
+            should_disable_hold = timed_selected or disable_selected
+
+            if hold_all_checkbox_ref.current:
+                hold_all_checkbox_ref.current.disabled = should_disable_hold
+                if should_disable_hold and hold_all_checkbox_ref.current.value:
+                    hold_all_checkbox_ref.current.value = False
+                hold_all_checkbox_ref.current.update()
+
+        timed_pub_checkbox = ft.Checkbox(
+            label="Add to Timed Publishing",
+            value=False,
+            ref=timed_pub_checkbox_ref,
+            on_change=lambda e: _sync_hold_all_disabled_state(),
+        )
         page.add(timed_pub_checkbox)
 
         # Timed publish date/time pickers (persistent)
@@ -332,6 +359,7 @@ def main(page: ft.Page):
         def _toggle_disable_message_input(e):
             disable_with_same_message_text.visible = bool(e.control.value)
             disable_with_same_message_text.update()
+            _sync_hold_all_disabled_state()
 
         disable_with_same_message_checkbox = ft.Checkbox(
             label="Disable with Same Message",
@@ -341,6 +369,7 @@ def main(page: ft.Page):
         )
         page.add(disable_with_same_message_checkbox)
         page.add(disable_with_same_message_text)
+        _sync_hold_all_disabled_state()
 
         # Add GO button to the page
         def on_go_click(e):
