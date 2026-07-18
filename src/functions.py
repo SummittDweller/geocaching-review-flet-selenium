@@ -90,6 +90,36 @@ def _create_firefox_driver(options, status_callback=None):
             raise default_exc
 
 
+def _resolve_default_firefox_profile_path():
+    """Return the best local Firefox profile path when none is configured explicitly."""
+    import glob
+    import platform
+
+    if platform.system() == "Darwin":  # macOS
+        profile_path = os.path.expanduser("~/Library/Application Support/Firefox/Profiles")
+    elif platform.system() == "Windows":
+        profile_path = os.path.expanduser("~/AppData/Roaming/Mozilla/Firefox/Profiles")
+    else:  # Linux
+        profile_path = os.path.expanduser("~/.mozilla/firefox")
+
+    if not os.path.exists(profile_path):
+        return ""
+
+    profiles = [path for path in glob.glob(os.path.join(profile_path, "*")) if os.path.isdir(path)]
+    if not profiles:
+        return ""
+
+    for candidate in profiles:
+        if "geocachingadmin" in os.path.basename(candidate).lower():
+            return candidate
+
+    for candidate in profiles:
+        if ".default" in os.path.basename(candidate).lower():
+            return candidate
+
+    return profiles[0]
+
+
 def _ensure_queue_filter_value(driver, desired_value, timeout=10):
     """Set queue filter dropdown to the desired value when present.
 
@@ -639,19 +669,40 @@ def scrape_queue_to_csv(firefox_profile_path=None, status_callback=None, driver=
 
 # Function to switch to a new tab that is not in the review_tabs list
 # -----------------------------------------------------------------------------
-def switch_to_new_tab(review_tabs, driver):
+def switch_to_new_tab(review_tabs, driver, tabs_before=None, timeout_seconds=10):
+    """Switch to the tab opened after an action and return its handle.
+
+    Falls back to legacy behavior when `tabs_before` is not provided.
+    """
+    if tabs_before is not None:
+        deadline = time.time() + timeout_seconds
+        while time.time() < deadline:
+            all_tabs = driver.window_handles
+            new_tabs = [h for h in all_tabs if h not in tabs_before]
+            for handle in new_tabs:
+                try:
+                    print(f"Switching to tab with handle: {handle}")
+                    driver.switch_to.window(handle)
+                    print(f"Switched to tab with URL: {driver.current_url}")
+                    return handle
+                except Exception:
+                    continue
+            time.sleep(0.25)
+        raise TimeoutException("Timed out waiting for a newly opened tab.")
+
     all_tabs = driver.window_handles
-    first_tab = all_tabs[0]
-    all_tabs.pop(0)  # Remove the first handle from the list
-  
-    # Loop on all_tabs looking for any that does NOT exist in review_tabs and select it
+    if all_tabs:
+        all_tabs = all_tabs[1:]
+
+    # Legacy fallback: pick the first tab not in review tabs.
     for handle in all_tabs:
         if handle not in review_tabs:
             print(f"Switching to tab with handle: {handle}")
-            # Switch to the new tab       
             driver.switch_to.window(handle)
             print(f"Switched to tab with URL: {driver.current_url}")
-            return handle 
+            return handle
+
+    raise NoSuchWindowException("No new tab available to switch to.")
 
 # Function to DISABLE the current page with a log message pasted from the clipboard
 # -----------------------------------------------------------------------------
@@ -816,13 +867,21 @@ def assign_to_bookmark_list(driver, handle, review_tabs):
     driver.switch_to.window(handle)
     print(f"Switched to tab with URL: {driver.current_url}")
 
+    # Record current tabs so we can reliably detect the tab opened by bookmark click.
+    tabs_before = set(driver.window_handles)
+
     # Click the link with ID 'ctl00_ContentBody_lnkBookmark' to bookmark the page
     bookmark_link = driver.find_element(By.ID, "ctl00_ContentBody_lnkBookmark")
     bookmark_link.click( )
 
-    # The above action will create a new bookmark list tab... switch to it
-    bookmarks = switch_to_new_tab(review_tabs, driver)
-    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "ctl00_ContentBody_Bookmark_ddBookmarkList")))
+    # Switch to the newly opened bookmark tab only (avoid unrelated about:blank tabs).
+    bookmarks = switch_to_new_tab(review_tabs, driver, tabs_before=tabs_before, timeout_seconds=12)
+
+    # Some browsers briefly report about:blank before navigation completes.
+    WebDriverWait(driver, 12).until(lambda d: (d.current_url or "") != "about:blank")
+    WebDriverWait(driver, 12).until(
+        EC.presence_of_element_located((By.ID, "ctl00_ContentBody_Bookmark_ddBookmarkList"))
+    )
 
     # Select the bookmark from the dropdown
     bookmark_dropdown = driver.find_element(By.ID, "ctl00_ContentBody_Bookmark_ddBookmarkList")
@@ -1169,8 +1228,6 @@ def initialize_driver(page, username=None, password=None):
     else:  # Linux
         profile_path = os.path.expanduser("~/.mozilla/firefox")
     
-    # Find the profile directory
-    import glob
     ui_profile = None
     if firefox_profile_path_ref.current:
         ui_profile = (firefox_profile_path_ref.current.value or "").strip()
@@ -1179,10 +1236,9 @@ def initialize_driver(page, username=None, password=None):
         options.profile = webdriver.FirefoxProfile(preferred_profile)
         source = "UI" if ui_profile else "env"
         print(f"Using Firefox profile ({source}): {preferred_profile}")
-    elif os.path.exists(profile_path):
-        profiles = glob.glob(os.path.join(profile_path, "*.default*"))
-        if profiles:
-            default_profile = profiles[0]
+    else:
+        default_profile = _resolve_default_firefox_profile_path()
+        if default_profile:
             options.profile = webdriver.FirefoxProfile(default_profile)
             print(f"Using Firefox profile: {default_profile}")
 
