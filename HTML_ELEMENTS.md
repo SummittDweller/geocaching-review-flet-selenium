@@ -27,7 +27,7 @@ This document lists every HTML element locator currently used by the automation 
 |---|---|---|---|---|---|
 | `By.ID` | `ctl00_ContentBody_lnkDisable` | Clicks the Disable action on a review listing to open the disable-log tab. | [src/functions.py#L550](src/functions.py#L550) | Low | Keep as-is. |
 | `By.ID` | `gc-md-editor_md` | Detects the disable-log editor tab and targets the text area for message entry. | [src/functions.py#L580](src/functions.py#L580), [src/functions.py#L613](src/functions.py#L613), [src/functions.py#L614](src/functions.py#L614) | Low | Keep as-is. |
-| `By.CLASS_NAME` | `gc-button-primary` | Clicks the primary Post button to submit the disable message/log. | [src/functions.py#L650](src/functions.py#L650) | Medium | Prefer action-specific button locator, for example XPath constrained by text/context: `//button[contains(@class,'submit-button') and normalize-space()='Post']`. |
+| `By.XPATH` / `By.CSS_SELECTOR` | `//button[normalize-space()='Post' or normalize-space(.)='Post']`, `//input[(translate(@type, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='submit' or translate(@type, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='button') and @value='Post']`, `button.gc-button-primary.submit-button` | Clicks the Post control to submit the disable message/log. | [src/functions.py#L817](src/functions.py#L817) | Medium | Keep the text-first fallback chain; if this regresses again, inspect the page for a stable action-specific id or data attribute. |
 
 ## Add To Bookmark List
 

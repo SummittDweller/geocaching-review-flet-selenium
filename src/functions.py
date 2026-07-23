@@ -814,12 +814,27 @@ def disable_with_same_message(driver, handle, review_tabs):
     print(f"Message entered: {len(disable_message)} chars")
     driver.implicitly_wait(1)
 
-    # Click the Post button with class 'gc-button-primary submit-button gc-button' to confirm the disable action
+    # Click the Post control using text-anchored selectors first, then fall back to the submit class.
+    post_button_locators = [
+        (By.XPATH, "//button[normalize-space()='Post' or normalize-space(.)='Post']"),
+        (By.XPATH, "//input[(translate(@type, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='submit' or translate(@type, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='button') and @value='Post']"),
+        (By.XPATH, "//a[normalize-space()='Post']"),
+        (By.CSS_SELECTOR, "button.gc-button-primary.submit-button"),
+    ]
     try:
-        post_button = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.CLASS_NAME, "gc-button-primary")))
-        print("Post button found, clicking it...")
-        post_button.click( )
-        print("Post button clicked")
+        post_button = None
+        last_error = None
+        for locator in post_button_locators:
+            try:
+                post_button = WebDriverWait(driver, 5).until(EC.element_to_be_clickable(locator))
+                print(f"Post button found with locator: {locator}")
+                post_button.click( )
+                print("Post button clicked")
+                break
+            except Exception as e:
+                last_error = e
+        if not post_button:
+            raise last_error or Exception("Post button not found")
     except Exception as e:
         print(f"ERROR: Could not find or click post button: {e}")
         raise
